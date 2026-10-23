@@ -140,14 +140,16 @@ Two machine-specific obstacles were handled in `mesqsim/data/net.py`:
 
 ### 2.3 Frames: verified from the data
 
+Every number in this section and in §2.5 is printed by `python scripts/diodem_inspect.py` (exp01 arm, exp06 gait).
+
 - **The optical world is +Z up.** The paper defines an east/north/up frame. Verified: the gravity direction from
   six-axis VQF and from the optical segment orientation agree with a mean cosine of 1.000.
 - **The optical quaternion maps segment to earth** (paper: "orientation of the segment's body coordinate system
   relative to the earth reference coordinate system"). This matches our convention.
 - **The rigid IMUs' axes are the segment axes** in the processed data. The same tilt agreement holds with no
-  mounting rotation at all, and per-axis gyroscope rates correlate 0.85–0.98 with the optical body rates.
-- **Chains** (paper Fig. 4 and Table 4, verified on exp01 and exp06): adjacent segments' nearest markers are 110–134
-  mm apart, while non-adjacent pairs are ≥ 372 mm apart. The hinge pairs keep ≥ 96 % of their relative angular
+  mounting rotation at all, and per-axis gyroscope rates correlate 0.92–0.995 with the optical body rates.
+- **Chains** (paper Fig. 4 and Table 4, verified on exp01 and exp06): adjacent segments' nearest markers are 109–134
+  mm apart, while non-adjacent pairs are ≥ 372 mm apart. The hinge pairs keep ≥ 96.8 % of their relative angular
   velocity variance on one axis.
   - arm: seg1–seg2 spherical, seg2–seg3 hinge, seg3–seg4 hinge, seg4–seg5 hinge;
   - gait: seg5–seg1 hinge, seg1–seg2 saddle, seg2–seg3 saddle, seg3–seg4 hinge.
@@ -166,8 +168,8 @@ and resamples every signal to one rate. At 40 Hz the IMU samples are unchanged a
 of two adjacent segments. It compares their relative heading with the optical one. Figure:
 [figures/diodem_relative_heading.png](figures/diodem_relative_heading.png).
 
-Observation, recorded only (arm exp01, all 13 motions, 6.13 min; numbers from check 11.3 and the exploration commands
-in WORKLOG M2):
+Observation, recorded only (arm exp01, all 13 motions, 6.13 min; numbers from check 11.3 and
+`scripts/diodem_inspect.py`):
 
 - The optical relative heading of the hinge seg2→seg3 spans 17.3°.
 - The six-axis estimate departs from it by up to 91.4° and ends at −80.3°. Most of this accrues in the first

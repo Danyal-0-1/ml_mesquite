@@ -35,6 +35,7 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [scripts/download_diodem.py](../scripts/download_diodem.py) | downloads and MD5-verifies DIODEM, writes `manifests/diodem.csv` |
 | [scripts/verify_amass.py](../scripts/verify_amass.py) | records, extracts and indexes hand-downloaded AMASS archives and the SMPL+H model |
 | [scripts/make_figures.py](../scripts/make_figures.py) | regenerates `docs/figures/*.png` |
+| [scripts/diodem_inspect.py](../scripts/diodem_inspect.py) | reproduces the DIODEM frame, adjacency and gyroscope-offset facts in DATA.md |
 | [manifests/](../manifests/) | committed manifests: path, size, SHA-256 of every data file (data itself never committed) |
 | [scripts/validate.py](../scripts/validate.py) | runs every check and rewrites [VALIDATION.md](VALIDATION.md) |
 | [scripts/check_all.sh](../scripts/check_all.sh) | the full check: ruff, pytest, validation |

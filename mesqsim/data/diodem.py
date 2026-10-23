@@ -123,8 +123,8 @@ def is_available() -> bool:
 
 
 # Adjacent segments (parent, child, joint) of the two chains. From the paper (Fig. 4, Table 4) and
-# verified on exp01 and exp06: adjacent segments' nearest markers are 110-134 mm apart, others >= 372 mm;
-# hinge pairs have >= 96 % of their relative angular velocity about one axis (see WORKLOG, M2).
+# verified on exp01 and exp06 by scripts/diodem_inspect.py: adjacent segments' nearest markers are 109-134 mm
+# apart, others >= 372 mm; hinge pairs have >= 96.8 % of their relative angular velocity about one axis.
 CHAINS = {
     "arm": (("seg1", "seg2", "spherical"), ("seg2", "seg3", "hinge"), ("seg3", "seg4", "hinge"),
             ("seg4", "seg5", "hinge")),
