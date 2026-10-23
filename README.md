@@ -57,7 +57,7 @@ tables and figures for the four baselines.
 | milestone | content | state |
 |---|---|---|
 | M1 | skeleton, environment, conventions, wire codec, CI | done on branch `m1-skeleton` (not pushed: repository is public) |
-| M2 | data: AMASS/SMPL+H instructions, DIODEM download, manifests, loaders, mapping | not started |
+| M2 | data: AMASS/SMPL+H instructions, DIODEM download, manifests, loaders, mapping | done on branch `m2-data` except the AMASS-dependent checks, which wait for the AMASS download |
 | M3 | thin end-to-end slice (offsets only → frames → Step 0 → B0, O2) | not started |
 | M4 | full simulator, configs, CLI | not started |
 | M5 | splits, dataset, baselines, first results | not started |
@@ -75,18 +75,24 @@ python -m pip install -r requirements.txt
 # 2. Optional: keep data and outputs elsewhere (defaults: ./data and ./outputs, both git-ignored)
 export MESQ_DATA_DIR=/path/to/data MESQ_OUTPUT_DIR=/path/to/outputs
 
-# 3. Check the environment, then run the full check (ruff, tests, validation → docs/VALIDATION.md)
+# 3. Data: DIODEM is scripted; AMASS and SMPL+H need your own registration (docs/DATA.md)
+python scripts/download_diodem.py
+python scripts/verify_amass.py        # after downloading AMASS archives by hand
+
+# 4. Check the environment, then run the full check (ruff, tests, validation → docs/VALIDATION.md)
 python scripts/check_env.py
 bash scripts/check_all.sh
+python scripts/make_figures.py        # regenerates docs/figures
 ```
 
 ## Where things are
 
 | path | what |
 |---|---|
-| [mesqsim/](mesqsim/) | the Python package: conventions, codec, body tree, correction, validation checks |
+| [mesqsim/](mesqsim/) | the Python package: conventions, codec, body tree, correction, data loaders, synthetic motion, figures, validation checks |
 | [tests/](tests/) | pytest suite; runs without licensed data |
-| [scripts/](scripts/) | `check_env.py`, `check_all.sh`, `validate.py` |
-| [docs/](docs/) | MATH, CODE, VALIDATION, and (later) PIPELINE, DATA, SIMULATOR, RESULTS, MUST_KNOW |
+| [scripts/](scripts/) | `check_env.py`, `check_all.sh`, `validate.py`, `download_diodem.py`, `verify_amass.py`, `make_figures.py` |
+| [manifests/](manifests/) | name, size and SHA-256 of every data file |
+| [docs/](docs/) | MATH, CODE, DATA, VALIDATION, figures; later PIPELINE, SIMULATOR, RESULTS, MUST_KNOW |
 | [WORKLOG.md](WORKLOG.md) | one entry per session or milestone: what changed, commands run, decisions |
 | `data/`, `outputs/` | git-ignored; licensed data and generated runs never enter git |

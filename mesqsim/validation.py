@@ -260,3 +260,192 @@ def _tilt(quick: bool) -> CheckResult:
     c = rng.uniform(-np.pi, np.pi, 5000)
     d = np.max(np.abs(gravity_in_body(quat_mul(yaw_quat(c), q)) - gravity_in_body(q)))
     return CheckResult(f"max change {d:.1e}", bool(d < 1e-12))
+
+
+# ---------------------------------------------------------------- 10. AMASS mapping
+
+_NO_AMASS = CheckResult("AMASS not downloaded (docs/DATA.md)", None)
+
+
+def _amass_files():
+    from .data import amass
+
+    return amass.motion_files()
+
+
+@register(
+    "10.1",
+    "Rest pose: every segment equals the facing",
+    "Zero every local rotation, give the root an upright pose with a random facing, run the forward kinematics "
+    "and the mapping.",
+    "At the SMPL rest pose (a T-pose) every global rotation equals R_0; this is the simulated T-pose.",
+    "max angle between any segment and R_0 < 1e-9°",
+    "pytest tests/test_amass.py -k rest_pose",
+)
+def _rest_pose(quick: bool) -> CheckResult:
+    from .conventions import exp_map, log_map
+    from .data import amass
+
+    rng = np.random.default_rng(25)
+    worst = 0.0
+    for _ in range(20):
+        root = quat_mul(yaw_quat(rng.uniform(-np.pi, np.pi)), exp_map([np.pi / 2, 0.0, 0.0]))
+        poses = np.zeros((1, 66))
+        poses[0, :3] = log_map(root)
+        seg = amass.segment_orientations(poses)[0]
+        worst = max(worst, _deg(np.max(geodesic_angle_rad(quat_mul(quat_conj(seg), root)))))
+    return CheckResult(f"max angle {worst:.1e}° over 20 facings", worst < 1e-9)
+
+
+@register(
+    "10.2",
+    "One AMASS sequence gives 15 unit orientations",
+    "Load the first AMASS motion file and map it.",
+    "The loader must handle the release's keys and frame rate; every segment must come out finite and unit.",
+    "shape (N, 15, 4), all finite, |q| = 1",
+    "pytest tests/test_amass.py -m amass -k 15_orientations",
+)
+def _amass_one(quick: bool) -> CheckResult:
+    from .data import amass
+
+    files = _amass_files()
+    if not files:
+        return _NO_AMASS
+    seq = amass.load_sequence(files[0])
+    seg = amass.segment_orientations(seq.poses)
+    ok = seg.shape == (seq.n_frames, 15, 4) and np.all(np.isfinite(seg))
+    ok = ok and np.max(np.abs(np.linalg.norm(seg, axis=-1) - 1)) < 1e-9
+    return CheckResult(f"{files[0].name}: {seq.n_frames} frames at {seq.fps:g} Hz, shape {seg.shape}", ok)
+
+
+@register(
+    "10.3",
+    "AMASS world is +Z up",
+    "Over up to 20 sequences, average the pelvis's body up axis (SMPL +y) in world coordinates.",
+    "Every dataset is converted to the +Z-up world at load time; for AMASS that conversion is the identity, "
+    "which this verifies from the data rather than assuming it.",
+    "closest world axis +Z, mean cosine > 0.8",
+    "pytest tests/test_amass.py -m amass -k z_up",
+)
+def _amass_up(quick: bool) -> CheckResult:
+    from .data import amass
+
+    files = _amass_files()
+    if not files:
+        return _NO_AMASS
+    roots = np.concatenate([amass.global_rotations(amass.load_sequence(f).poses)[:, 0] for f in files[:20]])
+    axis, cos = amass.estimate_world_up(roots)
+    return CheckResult(f"axis {axis.tolist()}, mean cosine {cos:.3f}", bool(np.all(axis == [0, 0, 1]) and cos > 0.8))
+
+
+@register(
+    "10.4",
+    "Walking: left and right thighs alternate",
+    "Hip flexion (thigh relative to pelvis about the lateral axis) on the first AMASS file named 'walk'.",
+    "Left and right must be the subject's own sides; swapped or mirrored legs would still look like walking "
+    "but would correlate positively.",
+    "correlation(left, right) < -0.3",
+    "pytest tests/test_amass.py -m amass -k thighs_alternate",
+)
+def _amass_walk(quick: bool) -> CheckResult:
+    from .data import amass
+
+    path = amass.find_walking_sequence()
+    if path is None:
+        return _NO_AMASS
+    seg = amass.segment_orientations(amass.load_sequence(path).poses)
+    r = float(np.corrcoef(amass.hip_flexion_rad(seg, "left"), amass.hip_flexion_rad(seg, "right"))[0, 1])
+    return CheckResult(f"{path.name}: correlation {r:+.2f}", r < -0.3)
+
+
+@register(
+    "10.5",
+    "Knee flexion in an anatomical range",
+    "Knee flexion (shin relative to thigh about the lateral axis) over up to 50 sequences, both sides.",
+    "A wrong joint index or axis would produce impossible knees.",
+    "all frames within (-20°, 170°)",
+    "pytest tests/test_amass.py -m amass -k knee",
+)
+def _amass_knee(quick: bool) -> CheckResult:
+    from .data import amass
+
+    files = _amass_files()
+    if not files:
+        return _NO_AMASS
+    lo, hi = np.inf, -np.inf
+    for f in files[: 10 if quick else 50]:
+        seg = amass.segment_orientations(amass.load_sequence(f).poses)
+        for side in ("left", "right"):
+            k = np.rad2deg(amass.knee_flexion_rad(seg, side))
+            lo, hi = min(lo, k.min()), max(hi, k.max())
+    return CheckResult(f"range [{lo:.1f}°, {hi:.1f}°]", lo > -20.0 and hi < 170.0)
+
+
+# ---------------------------------------------------------------- 11. DIODEM
+
+_NO_DIODEM = CheckResult("DIODEM not downloaded (scripts/download_diodem.py)", None)
+
+
+@register(
+    "11.1",
+    "DIODEM files match the manifest",
+    "Verify size and SHA-256 of every file in manifests/diodem.csv (downloads were checked against the "
+    "Dataverse MD5 when fetched).",
+    "The sanity check is only meaningful on the published data.",
+    "267 of 267 files ok",
+    "python scripts/check_env.py --require diodem",
+)
+def _diodem_manifest(quick: bool) -> CheckResult:
+    from .data import diodem
+    from .manifest import verify_manifest
+    from .paths import data_dir, manifest_dir
+
+    if not diodem.is_available():
+        return _NO_DIODEM
+    res = verify_manifest(manifest_dir() / diodem.MANIFEST, data_dir())
+    n_ok = sum(s == "ok" for _, s, _ in res)
+    return CheckResult(f"{n_ok} of {len(res)} files ok", n_ok == len(res) == 267)
+
+
+@register(
+    "11.2",
+    "DIODEM rate 40 Hz, quaternion norms 1",
+    "Read the header of every IMU and optical CSV; compute every optical quaternion's norm.",
+    "Confirms the format the loader assumes before any analysis.",
+    "IMU 40 Hz everywhere; max | |q| - 1 | < 1e-6",
+    "pytest tests/test_diodem.py -m diodem -k rates",
+)
+def _diodem_rates(quick: bool) -> CheckResult:
+    from .data import diodem
+
+    if not diodem.is_available():
+        return _NO_DIODEM
+    s = diodem.scan_rates_and_norms()
+    ok = s["imu_rates_hz"] == [40.0] and s["max_norm_dev"] < 1e-6
+    return CheckResult(
+        f"IMU rates {s['imu_rates_hz']} Hz; optical rates {s['omc_rates_hz']} Hz; max | |q| - 1 | "
+        f"{s['max_norm_dev']:.1e} over {s['n_quaternions']} quaternions", ok
+    )
+
+
+@register(
+    "11.3",
+    "Six-axis relative heading drifts, optical stays bounded",
+    "Arm trial exp01 (all 13 motions, 6.1 min), hinge seg2 -> seg3, rigid IMUs: six-axis VQF (magnetometer "
+    "dropped) against optical truth. Figure: docs/figures/diodem_relative_heading.png.",
+    "Reproduces, on real sensors, the phenomenon the project corrects. No claims are drawn from it in Step 1.",
+    "|VQF − optical| at the end > 2 × its P95 over the first 5 s; optical relative heading spans < 180°",
+    "python scripts/make_figures.py",
+)
+def _diodem_drift(quick: bool) -> CheckResult:
+    from .data import diodem
+
+    if not diodem.is_available():
+        return _NO_DIODEM
+    res = diodem.six_axis_relative_heading(diodem.load_trial(1), "seg2", "seg3")
+    first = np.percentile(np.abs(res["delta_deg"][res["t_s"] < 5]), 95)
+    end, span = res["delta_deg"][-1], np.ptp(res["rel_opt_deg"])
+    return CheckResult(
+        f"VQF − optical: end {end:+.1f}°, max |.| {np.max(np.abs(res['delta_deg'])):.1f}°, P95 first 5 s "
+        f"{first:.2f}°; optical span {span:.1f}°", abs(end) > 2 * first and span < 180.0
+    )

@@ -42,6 +42,8 @@ PACKAGES = {
     "pytest": "pytest",
     "hypothesis": "hypothesis",
     "ruff": "ruff",
+    "imt-diodem": "diodem",
+    "truststore": "truststore",
 }
 
 
@@ -97,7 +99,8 @@ def main() -> int:
         counts: dict[str, int] = {}
         for path, status, detail in results:
             counts[status] = counts.get(status, 0) + 1
-            if status != "ok":
+            # print every mismatch, but only the first few missing or unrecorded files
+            if status == "MISMATCH" or (status != "ok" and counts[status] <= 3):
                 print(f"  {man.stem}: {status:<10} {path} {detail}")
         summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
         print(f"  {man.stem}: {len(results)} files: {summary}")

@@ -1,6 +1,7 @@
-# Licensed or generated data never enters git (see CLAUDE.md rule 3).
-data/
-outputs/
+# Licensed or generated data never enters git (see CLAUDE.md rule 3). Anchored with a leading slash:
+# a bare "data/" would also hide the package folder mesqsim/data/
+/data/
+/outputs/
 *.npz
 !tests/fixtures/*.npz
 *.pkl

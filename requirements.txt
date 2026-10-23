@@ -19,3 +19,6 @@ requests==2.34.2
 pytest==9.1.1
 hypothesis==6.170.8
 ruff==0.17.2
+# DIODEM's official loader (Bachhuber et al.; pulls in qmt, dm-tree, jax) and OS trust store for downloads
+imt-diodem==1.1.11
+truststore==0.10.5

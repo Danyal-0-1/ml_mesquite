@@ -22,8 +22,12 @@ from mesqsim.validation import run_checks  # noqa: E402
 
 FIGURES = [
     # (file under docs/figures, caption) — listed when the file exists
-    ("stick_figure.png", "AMASS → Mesquite segments: one sequence drawn as a stick figure (check 10)."),
-    ("diodem_relative_heading.png", "DIODEM: six-axis VQF relative heading against optical truth (check 11)."),
+    ("stick_figure_amass.png", "AMASS → Mesquite segments: one walking sequence drawn with generic bone lengths "
+     "(check 10)."),
+    ("stick_figure_synthetic.png", "The same mapping on a synthetic walk (used until AMASS is downloaded): "
+     "subject's left in blue, right in orange, +Z up."),
+    ("diodem_relative_heading.png", "DIODEM arm exp01, hinge seg2 → seg3: six-axis VQF relative heading against "
+     "optical truth (check 11.3). No claims are drawn from it in Step 1."),
 ]
 
 
