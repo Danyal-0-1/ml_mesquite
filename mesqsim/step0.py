@@ -66,24 +66,20 @@ def _decode_pod(pod_id: int, df: pd.DataFrame, intervals, norm_tol: float) -> pd
     dc_true = dc + WRAP * wraps
     reboot = np.abs(dc_true - expect) > REBOOT_TOL_SENDS + REBOOT_TOL_PPM * 1e-6 * expect
     epoch = np.r_[0, np.cumsum(reboot)].astype(np.int32)
-    tick = np.empty(n, np.int64)
-    if n:
-        tick[0] = c[0]
-    for r in range(1, n):  # sequential by nature; n is a few thousand per pod
-        tick[r] = c[r] if reboot[r - 1] else tick[r - 1] + dc_true[r - 1]
+    first_of_epoch = np.r_[True, reboot]
+    start = np.maximum.accumulate(np.where(first_of_epoch, np.arange(n), 0))  # row where each row's epoch begins
+    # tick = count at the epoch's first frame + the unwrapped count increments since then
+    cum = np.cumsum(np.r_[0, dc_true]).astype(np.int64)
+    tick = c[start] + cum - cum[start]
     dup = np.r_[False, (~reboot) & (dc_true == 0)]
 
-    # --- ms_lo: unwrap within each epoch using the tick difference
-    ms = np.empty(n, np.int64)
-    for r in range(n):
-        if r == 0 or epoch[r] != epoch[r - 1]:
-            guess = NOMINAL_FIRST_SEND_MS + tick[r] * SEND_PERIOD_S * 1000.0
-            ms[r] = m[r] + WRAP * int(np.round((guess - m[r]) / WRAP))
-        else:
-            dm = (m[r] - m[r - 1]) % WRAP
-            elapsed = (tick[r] - tick[r - 1]) * SEND_PERIOD_S * 1000.0
-            ms[r] = ms[r - 1] + dm + WRAP * int(np.round((elapsed - dm) / WRAP))
-    first_of_epoch = np.r_[True, epoch[1:] != epoch[:-1]]
+    # --- ms_lo: unwrap within each epoch using the tick difference (31.25 ms per send)
+    dm = np.mod(np.diff(m), WRAP)
+    elapsed_ms = np.diff(tick) * SEND_PERIOD_S * 1000.0
+    cum_ms = np.cumsum(np.r_[0, dm + WRAP * np.round((elapsed_ms - dm) / WRAP)]).astype(np.int64)
+    guess = NOMINAL_FIRST_SEND_MS + tick * SEND_PERIOD_S * 1000.0  # places an epoch's first ms_lo
+    base = m + WRAP * np.round((guess - m) / WRAP).astype(np.int64)
+    ms = base[start] + cum_ms - cum_ms[start]
     new_sample = first_of_epoch | np.r_[False, ms[1:] != ms[:-1]]
 
     # --- integrity
@@ -111,37 +107,35 @@ def _decode_pod(pod_id: int, df: pd.DataFrame, intervals, norm_tol: float) -> pd
     })[keep]  # fmt: skip
 
     # --- missing ticks: only those bracketed by received frames of one recorded interval (mesqsim.recording)
-    lost_tick, lost_epoch, lost_t = [], [], []
-    rows = rec[["epoch", "tick", "t_host_s"]].to_numpy()
-    if intervals is None:
-        iid = np.zeros(len(rows), np.int64)
-    else:
-        iid = interval_id(rows[:, 2], intervals)
-    for r in range(1, len(rows)):
-        if iid[r] != iid[r - 1] or iid[r] < 0:
-            continue  # a recording gap: whatever was sent in between was not recorded
-        e, tk, th = int(rows[r, 0]), int(rows[r, 1]), rows[r, 2]
-        if int(rows[r - 1, 0]) == e:
-            prev_tick, prev_t = int(rows[r - 1, 1]), rows[r - 1, 2]
-            ks = np.arange(prev_tick + 1, tk)
-            t_est = prev_t + (ks - prev_tick) * (th - prev_t) / (tk - prev_tick)  # interpolated arrival
-        else:  # a reboot: the new epoch's ticks before its first received frame
-            ks = np.arange(0, tk)
-            t_est = th - (tk - ks) * SEND_PERIOD_S
-        lost_tick.append(ks)
-        lost_epoch.append(np.full(ks.size, e, np.int32))
-        lost_t.append(t_est)
-    if lost_tick:
-        lt = np.concatenate(lost_tick)
+    e = rec["epoch"].to_numpy()
+    tk = rec["tick"].to_numpy()
+    th = rec["t_host_s"].to_numpy()
+    iid = np.zeros(tk.size, np.int64) if intervals is None else interval_id(th, intervals)
+    # gap before row r (r >= 1): ticks between the previous received frame and this one, if both lie in one
+    # recorded interval; after a reboot, the new epoch's ticks before its first received frame
+    same_interval = (iid[1:] == iid[:-1]) & (iid[1:] >= 0)
+    same_epoch = e[1:] == e[:-1]
+    lo = np.where(same_epoch, tk[:-1] + 1, 0)
+    length = np.where(same_interval, np.maximum(tk[1:] - lo, 0), 0)
+    total = int(length.sum())
+    if total:
+        g = np.repeat(np.arange(length.size), length)  # which gap each lost tick belongs to
+        ks = lo[g] + np.arange(total) - np.repeat(np.cumsum(length) - length, length)
+        prev_t, prev_tick, next_t, next_tick = th[:-1][g], tk[:-1][g], th[1:][g], tk[1:][g]
+        t_est = np.where(
+            same_epoch[g],
+            prev_t + (ks - prev_tick) * (next_t - prev_t) / np.maximum(next_tick - prev_tick, 1),  # interpolated
+            next_t - (next_tick - ks) * SEND_PERIOD_S,
+        )
         lost = pd.DataFrame({
-            "pod_id": np.full(lt.size, pod_id, np.uint8),
-            "epoch": np.concatenate(lost_epoch),
-            "tick": lt,
-            "count": (lt % WRAP).astype(np.uint16),
+            "pod_id": np.full(total, pod_id, np.uint8),
+            "epoch": e[1:][g].astype(np.int32),
+            "tick": ks.astype(np.int64),
+            "count": (ks % WRAP).astype(np.uint16),
             "status": "lost",
             "received": False,
             "valid": False,
-            "t_host_est_s": np.concatenate(lost_t),
+            "t_host_est_s": t_est,
         })  # fmt: skip
         rec = pd.concat([rec, lost], ignore_index=True)
     return rec

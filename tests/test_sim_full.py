@@ -50,8 +50,8 @@ def test_gilbert_elliott_edge_cases():
 
 
 def test_fusion_error_is_stationary_with_the_right_correlation():
-    t = np.arange(0, 2000.0, 1 / 55.0)
-    eta = fusion_error(t, np.deg2rad(0.5), 1.0, np.random.default_rng(1))
+    eta = fusion_error(110_000, 55.0, np.deg2rad(0.5), 1.0, np.random.default_rng(1))  # 2000 s at 55 Hz
+    assert np.rad2deg(np.abs(eta[:200]).mean(axis=0)).max() < 1.0  # stationary from the first sample
     assert np.rad2deg(eta.std(axis=0)) == pytest.approx([0.5, 0.5, 0.5], rel=0.05)
     lag = 55  # one second = one correlation time
     r = np.mean([np.corrcoef(eta[:-lag, k], eta[lag:, k])[0, 1] for k in range(3)])

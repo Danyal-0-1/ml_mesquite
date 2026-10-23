@@ -77,18 +77,20 @@ def pod_epochs(cfg: Config, plan: SessionPlan, motion: MotionSource, p: PodParam
     return [Epoch(b, e, b + c, a) for (b, c, a), e in zip(starts, ends, strict=True)]
 
 
-def fusion_error(t_s: np.ndarray, sigma_rad: float, tau_s: float, rng: np.random.Generator) -> np.ndarray:
-    """eta (N, 3), a first-order Gauss-Markov process per body axis with stationary sigma, at sorted times."""
-    n = t_s.size
+def fusion_error(n: int, rate_hz: float, sigma_rad: float, tau_s: float, rng: np.random.Generator) -> np.ndarray:
+    """eta (n, 3) at a chip's n regularly spaced samples: first-order Gauss-Markov per body axis, stationary sigma.
+
+    x[0] ~ N(0, sigma²); x[k] = phi·x[k-1] + sqrt(1 - phi²)·N(0, sigma²) with phi = exp(-1 / (rate·tau)).
+    """
     if sigma_rad <= 0 or n == 0:
         return np.zeros((n, 3))
-    phi = np.exp(-np.diff(t_s) / tau_s)[:, None]
+    from scipy.signal import lfilter
+
+    phi = np.exp(-1.0 / (rate_hz * tau_s))
+    c = np.sqrt(1.0 - phi**2)
     eps = rng.normal(0.0, sigma_rad, (n, 3))
-    out = np.empty((n, 3))
-    out[0] = eps[0]
-    for k in range(1, n):
-        out[k] = phi[k - 1] * out[k - 1] + np.sqrt(1.0 - phi[k - 1] ** 2) * eps[k]
-    return out
+    eps[0] /= c  # so that x[0] = eps[0] has the stationary spread
+    return lfilter([c], [1.0, -phi], eps, axis=0)
 
 
 def simulate_session(cfg: Config, seed: int, motion: MotionSource, plan_hook=None) -> SessionData:
@@ -111,12 +113,14 @@ def simulate_session(cfg: Config, seed: int, motion: MotionSource, plan_hook=Non
         headings.append(hd)
         epoch_meta.append([vars(e) for e in epochs])
 
-        # one tick sequence across epochs, in send order
-        parts = []
+        # one tick sequence across epochs, in send order; eta on each epoch's own chip samples
+        parts, eta_by_epoch = [], []
         for e, ep in enumerate(epochs):
             tm = simulate_timing(cfg, p, ep.end_s, rngs["timing"], boot_s=ep.boot_s,
                                  chip_start_s=ep.first_sample_s - ep.boot_s)  # fmt: skip
             n_stalls += tm.n_stalls
+            eta_by_epoch.append(fusion_error(tm.t_sample_s.size, p.chip_rate_hz, tilt_sigma,
+                                             cfg["error_model.tilt_tau_s"], rngs["fusion"]))  # fmt: skip
             j = np.arange(tm.t_send_s.size)
             parts.append(pd.DataFrame({
                 "epoch": np.full(j.size, e, np.int32), "tick": j.astype(np.int64), "t_send_s": tm.t_send_s,
@@ -138,12 +142,11 @@ def simulate_session(cfg: Config, seed: int, motion: MotionSource, plan_hook=Non
         t_sample = lab["t_sample_s"].to_numpy()
         psi = hd.psi(t_sample)
         p_true = pod_orientation(plan, motion, i, t_sample)
-        # eta follows the chip's own samples: one value per distinct sample, in time order
         gid = lab["epoch"].to_numpy().astype(np.int64) * 10**9 + lab["sample_index"].to_numpy()
-        uniq, inv = np.unique(gid, return_inverse=True)
-        t_uniq = np.zeros(uniq.size)
-        t_uniq[inv] = t_sample
-        eta = fusion_error(t_uniq, tilt_sigma, cfg["error_model.tilt_tau_s"], rngs["fusion"])[inv]
+        eta = np.zeros((len(lab), 3))
+        for e, eta_e in enumerate(eta_by_epoch):
+            sel = lab["epoch"].to_numpy() == e
+            eta[sel] = eta_e[lab["sample_index"].to_numpy()[sel]]
         q = quat_canonical(quat_mul(quat_mul(yaw_quat(-psi), p_true), exp_map(eta)))  # q = Y(-psi)·P·Exp(eta)
         qi = quantize_component(q)
         batt = np.clip(np.floor(p.battery_start_pct - cfg["battery.drain_pct_per_h"]
