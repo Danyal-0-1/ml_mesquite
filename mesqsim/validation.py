@@ -35,6 +35,10 @@ class CheckResult:
     result: str
     passed: bool | None  # None: skipped (data absent)
 
+    def __post_init__(self):
+        if self.passed is not None:  # numpy booleans would break `is True` tests downstream
+            object.__setattr__(self, "passed", bool(self.passed))
+
 
 @dataclass(frozen=True)
 class Check:

@@ -90,7 +90,7 @@ def main() -> int:
         print(f"[{status_text(res.passed):>8}] {chk.id:<5} {chk.title}: {res.result}")
     if not args.quick:
         date = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M UTC")
-        (ROOT / "docs" / "VALIDATION.md").write_text(render(results, commit, date), encoding="utf-8")
+        (ROOT / "docs" / "VALIDATION.md").write_text(render(results, commit, date), encoding="utf-8", newline="\n")
         print("wrote docs/VALIDATION.md")
     failed = sum(r.passed is False for _, r in results)
     print("VALIDATION:", "PASS" if failed == 0 else f"FAIL ({failed})")
