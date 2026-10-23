@@ -2,7 +2,8 @@
 
     simulate   --config configs/default.yaml --seed 1 [--motion synthetic:walk:20 | path.npz] [--preset NAME]
                [--set key=value ...] [--out DIR]
-    baselines  --run DIR                        decode with Step 0, score B0/O2 (B1/O1 from M4), write results/
+    baselines  --run DIR                        decode with Step 0, score B0, B1, O1, O2, write results/
+    params     [--config FILE] [--label assumption]   every parameter with its value, label and source
     list-runs                                   runs under the output directory
     clean      --run DIR | --all --yes          delete run folders (only run_* folders in the output directory)
 """
@@ -45,6 +46,18 @@ def cmd_baselines(args) -> int:
     rows = summary[summary["joint_name"] == "all"]
     print(rows.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
     print(f"results in {Path(args.run) / 'results'}")
+    return 0
+
+
+def cmd_params(args) -> int:
+    cfg = load_config(args.config)
+    rows = [r for r in cfg.table() if args.label is None or r[2] == args.label]
+    width = max(len(k) for k, *_ in rows)
+    for key, value, label, source in rows:
+        print(f"{key:<{width}}  {str(value):<18} {label:<10} {source}")
+    labels = ("datasheet", "firmware", "assumption", "measured")
+    counts = {lab: sum(1 for r in cfg.table() if r[2] == lab) for lab in labels}
+    print(f"\n{len(cfg.table())} parameters: " + ", ".join(f"{v} {k}" for k, v in counts.items()))
     return 0
 
 
@@ -92,6 +105,11 @@ def main(argv=None) -> int:
     b = sub.add_parser("baselines", help="decode and score a run")
     b.add_argument("--run", required=True)
     b.set_defaults(fn=cmd_baselines)
+
+    pa = sub.add_parser("params", help="list every parameter with its label and source")
+    pa.add_argument("--config", default=str(DEFAULT_CONFIG))
+    pa.add_argument("--label", choices=["datasheet", "firmware", "assumption", "measured"])
+    pa.set_defaults(fn=cmd_params)
 
     lr = sub.add_parser("list-runs", help="list run folders")
     lr.set_defaults(fn=cmd_list_runs)

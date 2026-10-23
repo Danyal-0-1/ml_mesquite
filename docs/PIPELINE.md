@@ -1,7 +1,7 @@
 # Pipeline
 
-*Status: M3. The stages exist end to end; M4 adds the full error model (drift, scale factor, random walk, tilt
-error, radio loss, stalls, reboots), box registration, B1 and O1.*
+*Status: M4. Every stage, with the full error model, Step 0 (including box registration and the T-pose
+snapshot) and the four baselines. M5 adds dataset generation and splits.*
 
 ## Picture first
 
@@ -50,9 +50,14 @@ frames.parquet + session.json ─► STEP 0 ─► series.parquet ─► baselin
 - True pod orientation P_i(t) = s_i(t)·m_i (box: Y(box heading + ε_i), flat). Code: `sim/truth.py`.
 - Chip samples at the pod's own rate, decode delay, the 32 Hz send grid, newest sample, held repeats, `count`,
   `ms_lo`. Code: `sim/timing.py`.
-- Report q_i = Y(−ψ_i)·P_i, canonical (w ≥ 0), quantised as the firmware does. Code: `sim/simulate.py`,
+- ψ_i(t) for every pod and boot epoch: offset, drift, scale factor × turning Θ, random walk.
+  Code: `sim/heading.py`.
+- Report q_i = Y(−ψ_i)·P_i·Exp(η_i), canonical (w ≥ 0), quantised as the firmware does. Code: `sim/simulate.py`,
   `codec.quantize_component`.
-- Arrival = send + latency, first-in first-out per pod; host time = arrival + host epoch. Code: `sim/radio.py`.
+- Reboots split a pod's sends into boot epochs: count, clock and north restart. Code: `sim/simulate.py`.
+- Stalls create held frames. Code: `sim/timing.py`.
+- Gilbert–Elliott bursts drop frames. Arrival = send + latency, first-in first-out per pod; host time = arrival +
+  host epoch. Code: `sim/radio.py`.
 - A frame enters the frames table if it arrived inside a recorded phase (the idle interval is not recorded).
 
 ### 4. Files of a session (`sessions/<id>/`)
@@ -86,7 +91,7 @@ the host can know about (see "knowable ticks" in [MATH.md](MATH.md)).
 | `received` | in the frames table |
 | `fresh` | the sample differs from the previous tick's (sender's view) |
 | `new_to_host` | received and different from the last received sample (what the host can tell) |
-| `psi_rad` | true heading ψ_i of the pod's private frame at the sample time |
+| `psi_rad` | true heading ψ_i of the pod's private frame at the sample time (unwrapped radians) |
 | `pod_qx..pod_qw` | true pod orientation P_i (pod → world) at the sample time |
 
 **`labels_joints.parquet`** (simulation only): one row per joint and 32 Hz step.
@@ -95,12 +100,17 @@ the host can know about (see "knowable ticks" in [MATH.md](MATH.md)).
 |---|---|
 | `step`, `t_s`, `phase` | step index, true time, phase |
 | `joint` | 0–13 in `mesqsim.body.JOINTS` order |
-| `delta_rad` | true relative heading δ_pc = wrap(ψ_c − ψ_p) at `t_s` |
-| `delta_offset_rad` | the offset part wrap(a_c − a_p) (the O1 oracle) |
+| `delta_rad` | true relative heading δ_pc = wrap(ψ_c − ψ_p) at `t_s`; NaN while either pod is off (rebooting) |
+| `delta_offset_rad` | the offset part wrap(a_c − a_p) of the current boot epochs (the O1 oracle) |
 
 **`meta.json`** (simulation only): `run` (commit, config hash, seed), `config` (resolved values),
-`config_parameters` (value, label, source of each), `packages`, `source` (motion, fps, duration), `split`, `plan`
-(timeline and every pod's drawn parameters), `first_send_s`.
+`config_parameters` (value, label, source of each), `packages`, `source` (motion, fps, duration), `split`, and:
+
+- `plan`: the timeline and every pod's drawn parameters (boot, clock, chip rate, mounting, slot error, offset,
+  drift, scale factor, reboot times);
+- `epochs`: per pod, the boot, end, first sample and north of each boot epoch;
+- `first_send_s`;
+- `counts`: stalls, radio losses inside recordings, frames.
 
 ### 5. Step 0 → `series.parquet`
 
@@ -123,8 +133,8 @@ Code: `mesqsim/step0.py`. Rules: [MATH.md §5](MATH.md).
 
 - **In:** series, session, and (scorer and oracles only) labels and `meta.json` (host epoch, true mountings).
 - **Out:**
-  - `errors.parquet`: one row per session, baseline, step and joint, with `err_heading_deg` (primary) and
-    `err_orient_deg` (secondary, true mountings).
+  - `errors.parquet`: one row per session, baseline (B0, B1, O1, O2), step and joint, with `err_heading_deg`
+    (primary) and `err_orient_deg` (secondary, true mountings).
   - `summary.csv` and `summary.md`: mean, median and P95 per baseline, overall, per joint type and per joint
     (motion phase).
 

@@ -5,7 +5,7 @@ import pytest
 from mesqsim.validation import REGISTRY, run_checks
 
 
-@pytest.mark.parametrize("check_id", sorted(c.id for c in REGISTRY))
+@pytest.mark.parametrize("check_id", sorted(c.id for c in REGISTRY), ids=lambda c: "check_" + c.replace(".", "_"))
 def test_registered_check(check_id):
     [(chk, res)] = run_checks(quick=True, prefix=check_id)
     if res.passed is None:

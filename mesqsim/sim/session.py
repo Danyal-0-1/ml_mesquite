@@ -9,7 +9,7 @@ Nothing here depends on the order in which other subsystems draw random numbers 
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
@@ -41,6 +41,9 @@ class PodParams:
     strap_spins: int  # whole turns about the vertical while carried
     posture_q: list  # Exp(e_i): T-pose posture error of the pod's segment
     battery_start_pct: float
+    drift_rad_per_s: float = 0.0  # b_i: residual gyro-bias drift
+    scale_factor: float = 0.0  # k_i: gyroscope scale-factor error
+    reboots_s: list = field(default_factory=list)  # true times at which the pod reboots
 
 
 @dataclass
@@ -85,9 +88,25 @@ def _uniform(rng, lohi):
     return float(rng.uniform(lo, hi)) if hi > lo else float(lo)
 
 
+def _reboot_times(cfg: Config, rng: np.random.Generator, boot_s: float, t_end_s: float) -> list:
+    """Poisson reboots at rate error_model.reboot_rate_per_h, at least a silence plus 2 s apart."""
+    rate = cfg["error_model.reboot_rate_per_h"] / 3600.0
+    silence = cfg["error_model.reboot_silence_s"]
+    t0, t1 = boot_s + 5.0, t_end_s - silence - 2.0
+    if rate <= 0 or t1 <= t0:
+        return []
+    times = np.sort(rng.uniform(t0, t1, rng.poisson(rate * (t1 - t0))))
+    kept: list[float] = []
+    for t in times:
+        if not kept or t - kept[-1] >= silence + 2.0:
+            kept.append(float(t))
+    return kept
+
+
 def plan_session(cfg: Config, seed: int, motion: MotionSource) -> SessionPlan:
     """Draw the timeline and every pod's parameters for one session."""
     r_time, r_pod, r_head = stream(seed, "timeline"), stream(seed, "pods"), stream(seed, "heading")
+    r_drift, r_reboot = stream(seed, "drift"), stream(seed, "reboots")
 
     box_s, strap_s, tpose_s = cfg["session.box_s"], cfg["session.strapping_s"], cfg["session.tpose_s"]
     idle_s = float(cfg["session.idle_s"])
@@ -135,11 +154,16 @@ def plan_session(cfg: Config, seed: int, motion: MotionSource) -> SessionPlan:
             offset = float(heading_rad(yaw_quat(box_heading + slot)))
         else:
             offset = 0.0
+        drift = float(r_drift.normal(0.0, np.deg2rad(cfg["error_model.drift_sigma_deg_per_min"]) / 60.0))
+        kmax = cfg["error_model.scale_factor_max"]
+        scale = float(r_drift.uniform(-kmax, kmax)) if kmax > 0 else 0.0
+        reboots = _reboot_times(cfg, r_reboot, boot, phases["motion"][1])
         pods.append(PodParams(
             pod_id=i, boot_s=boot, clock_ppm=ppm, chip_rate_hz=rate, chip_start_s=chip_start,
             grid_first_ms=cfg["timing.grid_start_ms"] + i * period_ms / cfg["timing.send_phase_divisor"],
             mount_q=mount.tolist(), box_slot_rad=slot, offset_rad=offset, strap_window_s=(w0, w0 + move),
             strap_spins=spins, posture_q=posture.tolist(), battery_start_pct=battery,
+            drift_rad_per_s=drift, scale_factor=scale, reboots_s=reboots,
         ))  # fmt: skip
     assert len(pods) == N_PODS
     return SessionPlan(phases, host_epoch_s, box_heading, facing_t, facing_m, motion.name, pods)

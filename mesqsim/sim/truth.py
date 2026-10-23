@@ -46,5 +46,5 @@ def pod_orientation(plan: SessionPlan, motion: MotionSource, pod: int, t_s) -> n
         seg = quat_mul(yaw_quat(plan.facing_motion_rad), motion.at(t[mot] - m0, pod))
         out[mot] = quat_mul(seg, np.asarray(p.mount_q))
     if np.any(np.isnan(out[..., 3])):
-        raise ValueError("pod orientation requested inside the idle interval or outside the session")
+        raise ValueError("pod orientation requested outside the session")
     return out

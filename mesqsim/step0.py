@@ -17,7 +17,13 @@ It never reads labels. Output: a per-pod series with one row per send tick, rece
 2. **Integrity.** int16 / 32767; a frame with | |q| - 1 | > ``norm_tol`` is kept but marked ``valid = False``;
    valid quaternions are normalised and canonicalised to w >= 0.
 
-Box registration and the T-pose snapshot (items 3 and 4 of §4.6) are added in M4.
+3. **Box registration** (:func:`box_headings`). In the box every pod lies in an aligned slot, so the heading of
+   each pod's box record (circular mean over its valid frames of the first boot epoch inside the ``box`` phase)
+   estimates minus its private north, up to the slot error. Only differences between pods mean anything:
+   delta_hat_pc = wrap(h_p - h_c).
+4. **T-pose snapshot** (:func:`tpose_snapshot`, :func:`world_deltas`), as the suit does it: q_i(T) is the mean of
+   pod i's frames in the ``tpose`` phase, and the world deltas are Delta_i(t) = q_i(t) · q_i(T)^-1.
+5. Facing from an arm raise is Step 2 and is not here.
 """
 
 from __future__ import annotations
@@ -26,10 +32,11 @@ import numpy as np
 import pandas as pd
 
 from .codec import Q_SCALE, WRAP
-from .conventions import quat_canonical
+from .conventions import circ_mean_rad, heading_rad, quat_canonical, quat_conj, quat_mean, quat_mul
 from .recording import interval_id, merge_recorded
 
-__all__ = ["SEND_PERIOD_S", "NORM_TOL", "decode", "recorded_intervals"]
+__all__ = ["SEND_PERIOD_S", "NORM_TOL", "decode", "recorded_intervals", "phase_range", "box_headings",
+           "tpose_snapshot", "world_deltas"]
 
 SEND_PERIOD_S = 0.03125  # firmware: 31,250 us per send
 NORM_TOL = 0.01  # quantisation alone moves | |q| - 1 | by < 1.3e-4; anything near 0.01 is corruption
@@ -151,3 +158,45 @@ def decode(frames: pd.DataFrame, session: dict | None = None, norm_tol: float = 
             "ms_lo", "ms_unwrapped", "t_pod_s", "batt", "norm_err", "qx", "qy", "qz", "qw"]  # fmt: skip
     out = pd.concat(parts, ignore_index=True).reindex(columns=cols)
     return out.sort_values(["pod_id", "epoch", "tick"], kind="mergesort", ignore_index=True)
+
+
+def phase_range(session: dict, name: str) -> tuple[float, float]:
+    """Host-time range of one phase from ``session.json``."""
+    for ph in session["phases"]:
+        if ph["name"] == name:
+            return ph["t_host_start_s"], ph["t_host_end_s"]
+    raise KeyError(f"session.json has no phase {name!r}")
+
+
+def _rows_in(series: pd.DataFrame, session: dict, name: str, epoch: int | None) -> pd.DataFrame:
+    a, b = phase_range(session, name)
+    sel = series["received"] & series["valid"] & (series["t_host_s"] >= a) & (series["t_host_s"] <= b)
+    if epoch is not None:
+        sel &= series["epoch"] == epoch
+    return series[sel]
+
+
+def box_headings(series: pd.DataFrame, session: dict) -> pd.DataFrame:
+    """Per pod: circular-mean heading (radians) of its box record and the number of frames used.
+
+    Only the first boot epoch counts: a pod that rebooted later keeps this (now stale) estimate.
+    """
+    rows = _rows_in(series, session, "box", epoch=0)
+    out = []
+    for pod, g in rows.groupby("pod_id", sort=True):
+        h = heading_rad(g[["qx", "qy", "qz", "qw"]].to_numpy())
+        out.append({"pod_id": int(pod), "heading_rad": float(circ_mean_rad(h)), "n_frames": len(g)})
+    return pd.DataFrame(out, columns=["pod_id", "heading_rad", "n_frames"])
+
+
+def tpose_snapshot(series: pd.DataFrame, session: dict) -> dict[int, np.ndarray]:
+    """Per pod: q_i(T), the mean of its valid frames in the ``tpose`` phase."""
+    rows = _rows_in(series, session, "tpose", epoch=None)
+    return {int(pod): quat_mean(g[["qx", "qy", "qz", "qw"]].to_numpy()) for pod, g in rows.groupby("pod_id")}
+
+
+def world_deltas(series: pd.DataFrame, snapshot: dict[int, np.ndarray]) -> np.ndarray:
+    """Delta_i(t) = q_i(t) · q_i(T)^-1 for every row of ``series`` (NaN without a frame or a snapshot)."""
+    q = series[["qx", "qy", "qz", "qw"]].to_numpy()
+    ref = np.array([snapshot.get(int(pod), [np.nan] * 4) for pod in series["pod_id"]], dtype=float)
+    return quat_mul(q, quat_conj(ref))

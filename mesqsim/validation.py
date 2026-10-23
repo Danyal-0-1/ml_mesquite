@@ -453,7 +453,7 @@ def _diodem_drift(quick: bool) -> CheckResult:
 
 # ---------------------------------------------------------------- 5, 7, 8: the simulator and Step 0
 
-def _simulate(preset: str | None, seed: int = 1, motion: str = "synthetic:walk:20", **overrides):
+def _simulate(preset: str | None, seed: int = 1, motion: str = "synthetic:walk:20", plan_hook=None, **overrides):
     """Simulate one session in memory, decode it with Step 0, return (SessionData, data dict, series)."""
     from . import step0
     from .config import load_config
@@ -466,7 +466,7 @@ def _simulate(preset: str | None, seed: int = 1, motion: str = "synthetic:walk:2
         cfg = cfg.with_preset(preset)
     if overrides:
         cfg = cfg.with_overrides(overrides)
-    d = simulate_session(cfg, seed, MotionSource.from_spec(motion))
+    d = simulate_session(cfg, seed, MotionSource.from_spec(motion), plan_hook=plan_hook)
     data = {"frames": d.frames, "session": d.session, "labels_ticks": d.labels_ticks,
             "labels_joints": d.labels_joints, "meta": d.meta}  # fmt: skip
     return d, data, step0.decode(d.frames, d.session)
@@ -542,23 +542,29 @@ def _unwrap(quick: bool) -> CheckResult:
 @register(
     "7.4",
     "Step 0's fresh, held and lost flags equal the truth",
-    "Join Step 0's series with the simulator's per-tick labels on (pod, epoch, tick); compare every flag. "
-    "Default config (losses, stalls and reboots join in M4).",
+    "Join Step 0's series with the simulator's per-tick labels on (pod, epoch, tick) and compare every flag, under "
+    "the default config and under the stress preset (5 % loss in bursts of 10, 100 ms stalls, reboots; seed 5 has "
+    "three reboots), both with a 10-minute idle gap.",
     "Step 0 is the shared decoder of real recordings; its bookkeeping must be exact where the truth is known.",
-    "same set of ticks; 0 flag mismatches",
-    "pytest tests/test_sim_slice.py -k flag",
+    "same set of (pod, epoch, tick); 0 flag mismatches; reboot epochs found",
+    "pytest tests/test_validation.py -k check_7_4",
 )
 def _flags(quick: bool) -> CheckResult:
-    d, _, series = _simulate(None)
-    m = series.merge(d.labels_ticks, on=["pod_id", "epoch", "tick"], how="outer", indicator=True,
-                     suffixes=("", "_true"))  # fmt: skip
-    unmatched = int((m["_merge"] != "both").sum())
-    both = m[m["_merge"] == "both"]
-    bad = int(np.sum((both["status"] == "fresh").to_numpy() != both["new_to_host"].to_numpy()))
-    bad += int(np.sum(both["received"].to_numpy() != both["received_true"].to_numpy()))
-    counts = series["status"].value_counts().to_dict()
-    return CheckResult(f"{len(both)} ticks {counts}; {unmatched} unmatched, {bad} mismatches",
-                       unmatched == 0 and bad == 0)  # fmt: skip
+    texts, ok = [], True
+    for preset, seed in ((None, 1), ("stress", 5)):
+        d, _, series = _simulate(preset, seed=seed, motion="synthetic:walk:30", **{"session.idle_s": 600.0})
+        m = series.merge(d.labels_ticks, on=["pod_id", "epoch", "tick"], how="outer", indicator=True,
+                         suffixes=("", "_true"))  # fmt: skip
+        unmatched = int((m["_merge"] != "both").sum())
+        both = m[m["_merge"] == "both"]
+        bad = int(np.sum((both["status"] == "fresh").to_numpy() != both["new_to_host"].to_numpy()))
+        bad += int(np.sum(both["received"].to_numpy() != both["received_true"].to_numpy()))
+        c = series["status"].value_counts()
+        reboots = int(series.groupby("pod_id")["epoch"].max().sum())
+        texts.append(f"{preset or 'default'}: {len(both)} ticks (fresh {c.get('fresh', 0)}, held {c.get('held', 0)}, "
+                     f"lost {c.get('lost', 0)}), {reboots} reboots, {unmatched} unmatched, {bad} mismatches")
+        ok &= unmatched == 0 and bad == 0
+    return CheckResult("; ".join(texts), ok)
 
 
 @register(
@@ -586,3 +592,296 @@ def _repro(quick: bool) -> CheckResult:
     differ = hashes[0]["frames.parquet"] != hashes[2]["frames.parquet"]
     return CheckResult(f"{len(hashes[0])} files; seed 7 twice identical: {same}; seed 8 differs: {differ}",
                        same and differ)  # fmt: skip
+
+
+# ---------------------------------------------------------------- 4. invariances at the simulator level
+
+def _shift_offsets(pods_deltas: dict):
+    def hook(plan):
+        for pod, d in pods_deltas.items():
+            plan.pods[pod].offset_rad += d
+
+    return hook
+
+
+@register(
+    "4.2",
+    "Turning every pod's north by one Y(β) changes nothing observable",
+    "Simulate the same session twice (default config, seed 2), the second time with β = 73° added to every pod's "
+    "north; compare the labels and B1's estimates (Step 0 box registration on the re-simulated frames).",
+    "The room's heading is unknowable (brief §2, §4.5): labels must not move, and estimators may only move by "
+    "quantisation.",
+    "labels: max change < 1e-9°; B1: max change ≤ 0.5°",
+    "pytest tests/test_validation.py -k check_4_2",
+)
+def _common_yaw(quick: bool) -> CheckResult:
+    from . import evaluate as ev
+
+    beta = np.deg2rad(73.0)
+    _, d0, s0 = _simulate(None, seed=2)
+    _, d1, s1 = _simulate(None, seed=2, plan_hook=_shift_offsets({i: beta for i in range(15)}))
+    lab0 = d0["labels_joints"]["delta_rad"].to_numpy()
+    lab1 = d1["labels_joints"]["delta_rad"].to_numpy()
+    dl = np.max(np.abs(wrap_rad(lab1 - lab0)))
+    g0, g1 = ev.Grid(d0["labels_joints"]), ev.Grid(d1["labels_joints"])
+    b0, b1 = ev.estimate("B1", g0, s0, d0["session"]), ev.estimate("B1", g1, s1, d1["session"])
+    db = np.max(np.abs(wrap_rad(b1 - b0)))
+    return CheckResult(f"labels max change {_deg(dl):.1e}°; B1 max change {_deg(db):.4f}°",
+                       _deg(dl) < 1e-9 and _deg(db) <= 0.5)  # fmt: skip
+
+
+@register(
+    "4.3",
+    "Turning one pod's north by Y(γ) moves only its joints, by exactly ±γ",
+    "Re-simulate with γ = 23° added to the LeftUpLeg pod's north (pod 9, child of l_hip, parent of l_knee).",
+    "Each pod's north enters only the joints it touches: as child +γ, as parent −γ (brief §4.5).",
+    "l_hip +23°, l_knee −23°, every other joint 0 (to 1e-9°); other pods' frames identical",
+    "pytest tests/test_validation.py -k check_4_3",
+)
+def _one_pod(quick: bool) -> CheckResult:
+    from .body import JOINTS
+
+    gamma = np.deg2rad(23.0)
+    a, d0, _ = _simulate(None, seed=2)
+    b, d1, _ = _simulate(None, seed=2, plan_hook=_shift_offsets({9: gamma}))
+    lj0, lj1 = d0["labels_joints"], d1["labels_joints"]
+    diff = wrap_rad(lj1["delta_rad"].to_numpy() - lj0["delta_rad"].to_numpy())
+    ok = True
+    parts = []
+    for k, j in enumerate(JOINTS):
+        dk = diff[lj0["joint"].to_numpy() == k]
+        want = gamma if j.child == 9 else (-gamma if j.parent == 9 else 0.0)
+        ok &= _deg(float(np.max(np.abs(dk - want)))) < 1e-9
+        if want != 0.0:
+            parts.append(f"{j.name} {_deg(np.mean(dk)):+.6f}°")
+    others = a.frames[a.frames["pod_id"] != 9].reset_index(drop=True)
+    others_b = b.frames[b.frames["pod_id"] != 9].reset_index(drop=True)
+    same = others.equals(others_b)
+    return CheckResult(f"{', '.join(parts)}, others 0; other pods' frames identical: {same}", ok and same)
+
+
+# ---------------------------------------------------------------- 5. offsets only: B1 = O1 = 0
+
+@register(
+    "5.3",
+    "Offsets only (arbitrary, zero slot error): B1 = O1 = 0, B0 is not",
+    "Preset 'offsets_only': score B0, B1 and O1 over the motion phase.",
+    "Box registration recovers arbitrary offsets exactly when the box slots are perfect; nothing else may leak in.",
+    "B1 and O1 ≤ 0.01° (quantisation); B0 mean > 10°",
+    "pytest tests/test_validation.py -k check_5_3",
+)
+def _offsets_b1(quick: bool) -> CheckResult:
+    from . import evaluate as ev
+
+    _, data, series = _simulate("offsets_only")
+    e = ev.evaluate(data, series, baselines=("B0", "B1", "O1"))
+    e = e[e["phase"] == "motion"]
+    mx = e.groupby("baseline")["err_heading_deg"].max()
+    mean_b0 = e.loc[e["baseline"] == "B0", "err_heading_deg"].mean()
+    return CheckResult(f"max heading error B1 {mx['B1']:.4f}°, O1 {mx['O1']:.1e}°; B0 mean {mean_b0:.1f}°",
+                       mx["B1"] <= 0.01 and mx["O1"] <= 0.01 and mean_b0 > 10.0)  # fmt: skip
+
+
+# ---------------------------------------------------------------- 6. analytic growth
+
+def _heading_pods(n_sessions: int, cfg_overrides: dict, motion: str, hook=None):
+    """Plans and PodHeading objects for many pods, without frames (fast Monte Carlo)."""
+    from .config import load_config
+    from .paths import REPO_ROOT
+    from .sim.heading import build_pod_heading
+    from .sim.motion import MotionSource
+    from .sim.rng import stream
+    from .sim.session import plan_session
+    from .sim.simulate import pod_epochs
+
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml").with_preset("zero").with_overrides(cfg_overrides)
+    mot = MotionSource.from_spec(motion)
+    arw = np.deg2rad(cfg["error_model.arw_deg_per_sqrt_s"])
+    turns = cfg["error_model.idle_turns_sigma_per_sqrt_min"]
+    out = []
+    for seed in range(n_sessions):
+        plan = plan_session(cfg, seed, mot)
+        if hook:
+            hook(plan)
+        r_ep, r_walk = stream(seed, "epochs"), stream(seed, "walk")
+        for p in plan.pods:
+            eps = pod_epochs(cfg, plan, mot, p, r_ep)
+            hd = build_pod_heading(plan, mot, p.pod_id, eps, p.drift_rad_per_s, p.scale_factor, arw, turns, r_walk)
+            out.append((plan, p, hd))
+    return out
+
+
+@register(
+    "6.1",
+    "Random walk only: σ of ψ at 600 s is 0.367°, of a pair 0.519°",
+    "Preset 'zero' plus the datasheet angle random walk (0.015 °/s/√Hz); idle chosen so that 600 s after each pod's "
+    "boot falls in the motion phase; ψ over 2,250 pods (600 in quick mode) and over the 14 parent-child pairs.",
+    "Pins the random walk's scaling σ = N_g √t (datasheet: 0.367° after 10 min, √2 × for a pair).",
+    "within 5 % of 0.367° and 0.519° (15 % in quick mode)",
+    "pytest tests/test_validation.py -k check_6_1",
+)
+def _arw(quick: bool) -> CheckResult:
+    from .body import JOINTS
+
+    n = 40 if quick else 150
+    pods = _heading_pods(n, {"error_model.arw_deg_per_sqrt_s": 0.015, "session.idle_s": 560.0}, "synthetic:stand:10")
+    psi = np.array([float(hd.psi(p.boot_s + 600.0)) for _, p, hd in pods])
+    by_session = psi.reshape(n, 15)
+    pair = np.concatenate([by_session[:, j.child] - by_session[:, j.parent] for j in JOINTS])
+    s1, s2 = _deg(np.std(psi)), _deg(np.std(pair))
+    e1, e2 = 0.015 * np.sqrt(600.0), 0.015 * np.sqrt(1200.0)
+    tol = 0.15 if quick else 0.05
+    return CheckResult(f"σ ψ {s1:.4f}° (expected {e1:.4f}°, {len(psi)} pods); σ pair {s2:.4f}° (expected {e2:.4f}°, "
+                       f"{len(pair)} pairs)", abs(s1 / e1 - 1) < tol and abs(s2 / e2 - 1) < tol)  # fmt: skip
+
+
+@register(
+    "6.2",
+    "Drift only: δ(t) = (b_c − b_p)·t exactly",
+    "Preset 'zero' plus drift (σ_b = 1 °/min), all pods booted at t = 0 (boot spread 0); compare every label δ(t_k) "
+    "with (b_c − b_p)·t_k from the drawn b_i.",
+    "Pins the drift term's sign, units (deg/min) and time origin.",
+    "max |δ − (b_c − b_p)·t| < 1e-9° over every step and joint",
+    "pytest tests/test_validation.py -k check_6_2",
+)
+def _drift(quick: bool) -> CheckResult:
+    from .body import JOINTS
+
+    d, data, _ = _simulate("zero", **{"error_model.drift_sigma_deg_per_min": 1.0, "session.boot_spread_s": 0.0})
+    lj = data["labels_joints"]
+    b = np.array([p.drift_rad_per_s for p in d.plan.pods])
+    jt = lj["joint"].to_numpy()
+    expected = np.array([b[JOINTS[k].child] - b[JOINTS[k].parent] for k in jt]) * lj["t_s"].to_numpy()
+    err = _deg(np.max(np.abs(wrap_rad(lj["delta_rad"].to_numpy() - expected))))
+    largest = _deg(np.max(np.abs(expected)))
+    return CheckResult(f"max deviation {err:.1e}° over {len(lj)} labels; largest |δ| {largest:.2f}°", err < 1e-9)
+
+
+@register(
+    "6.3",
+    "One full turn with k = 1.5 % gives 5.4°",
+    "Synthetic walk in a circle at 30 °/s for exactly 360°; set the pelvis pod's scale factor to 1.5 %; ψ change of "
+    "that pod over the motion, through the simulator's integration of the vertical angular velocity.",
+    "Pins Θ (signed rotation about the vertical) and the scale-factor term: 0.015 × 360° = 5.4° (brief §4.3).",
+    "5.4° within 5 %",
+    "pytest tests/test_validation.py -k check_6_3",
+)
+def _turn(quick: bool) -> CheckResult:
+    def hook(plan):
+        plan.pods[2].scale_factor = 0.015
+
+    pods = _heading_pods(1, {}, "synthetic:circle:12.0166667", hook)
+    plan, _, hd = pods[2]
+    m0, m1 = plan.phases["motion"]
+    dpsi = _deg(float(hd.psi(m1) - hd.psi(m0)))
+    dtheta = _deg(float(hd.theta_at(m1) - hd.theta_at(m0)))
+    return CheckResult(f"Θ over the motion {dtheta:.3f}°; ψ change {dpsi:.4f}° (expected 5.4°)",
+                       abs(dpsi / 5.4 - 1) < 0.05)  # fmt: skip
+
+
+# ---------------------------------------------------------------- 7. timing statistics
+
+def _one_pod_timing(rate_hz: float, seconds: float, seed: int, **overrides):
+    from .config import load_config
+    from .paths import REPO_ROOT
+    from .sim.session import PodParams
+    from .sim.timing import simulate_timing
+
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml").with_overrides({"timing.pod_clock_ppm": 0.0, **overrides})
+    p = PodParams(pod_id=0, boot_s=0.0, clock_ppm=0.0, chip_rate_hz=rate_hz, chip_start_s=0.3, grid_first_ms=1000.0,
+                  mount_q=[0, 0, 0, 1], box_slot_rad=0.0, offset_rad=0.0, strap_window_s=(0, 0), strap_spins=0,
+                  posture_q=[0, 0, 0, 1], battery_start_pct=100.0)  # fmt: skip
+    return cfg, p, simulate_timing(cfg, p, seconds, np.random.default_rng(seed))
+
+
+@register(
+    "7.1",
+    "Discarded fractions 0.36, 0.42, 0.47 at 50.1, 55, 60 Hz",
+    "One pod, 600 s, decode delay 0-11 ms, no stalls: share of chip samples that are never sent.",
+    "The pod sends the newest sample at each 32 Hz send; the rest are discarded (brief §3.3): 1 − 32/f.",
+    "within 5 % of 1 − 32/f (0.361, 0.418, 0.467)",
+    "pytest tests/test_validation.py -k check_7_1",
+)
+def _discard(quick: bool) -> CheckResult:
+    texts, ok = [], True
+    for f in (50.1, 55.0, 60.0):
+        _, _, tm = _one_pod_timing(f, 600.0, 1)
+        used = tm.t_decode_s <= tm.t_send_s[-1]
+        frac = 1.0 - np.unique(tm.sample_idx).size / used.sum()
+        exp = 1.0 - 32.0 / f
+        ok &= abs(frac / exp - 1) < 0.05
+        texts.append(f"{f:g} Hz: {frac:.4f} (expected {exp:.4f})")
+    return CheckResult("; ".join(texts), ok)
+
+
+@register(
+    "7.2",
+    "Held frames: none without stalls; the expected rate with stalls",
+    "Stalls off: 15 pods at rates spread over 50.1-60 Hz, 600 s each. Stalls on (S = 100 ms every 3 s ± 0.5 s): "
+    "15 pods for 3,600 s (1,200 s in quick mode); expected held per stall = (S + E[u])/T − 1 with T = 31.25 ms and "
+    "E[u] = 1/(2f) + f·D²/12 the mean time since the last decode (D = 11 ms decode spread).",
+    "Held frames come only from stalls (brief §3.3); their rate must follow from the stall model, not from a bug.",
+    "0 held without stalls; held rate within 5 % of the expectation with stalls (10 % in quick mode)",
+    "pytest tests/test_validation.py -k check_7_2",
+)
+def _held(quick: bool) -> CheckResult:
+    rates = np.linspace(50.1, 60.0, 15)
+    held0 = sum(int(np.sum(~_one_pod_timing(f, 600.0, k)[2].fresh[1:])) for k, f in enumerate(rates))
+    secs = 1200.0 if quick else 3600.0
+    s_ms, d_s, t_ms = 100.0, 0.011, 31.25
+    held, sends, expected = 0, 0, 0.0
+    for k, f in enumerate(rates):
+        _, _, tm = _one_pod_timing(f, secs, 100 + k, **{"timing.stall_ms": s_ms})
+        held += int(np.sum(~tm.fresh[1:]))
+        sends += tm.fresh.size
+        eu_ms = 1000.0 * (1.0 / (2 * f) + f * d_s**2 / 12)
+        expected += tm.n_stalls * ((s_ms + eu_ms) / t_ms - 1.0)
+    rate, exp_rate = held / sends, expected / sends
+    tol = 0.10 if quick else 0.05
+    return CheckResult(f"stalls off: {held0} held; stalls on: rate {rate:.5f} vs expected {exp_rate:.5f} "
+                       f"({held} held in {sends} sends)", held0 == 0 and abs(rate / exp_rate - 1) < tol)  # fmt: skip
+
+
+@register(
+    "7.5",
+    "Loss rate and burst length match the loss model",
+    "The Gilbert-Elliott chain alone, 2,000,000 sends, at the brief's sweep corners (0.5 %, 1), (2 %, 3), (5 %, 10).",
+    "The loss model's two parameters must mean what their names say.",
+    "loss fraction and mean burst within 5 % of the parameters",
+    "pytest tests/test_validation.py -k check_7_5",
+)
+def _loss(quick: bool) -> CheckResult:
+    from .sim.radio import gilbert_elliott_lost
+
+    texts, ok = [], True
+    for k, (loss, burst) in enumerate(((0.005, 1.0), (0.02, 3.0), (0.05, 10.0))):
+        lost = gilbert_elliott_lost(2_000_000, loss, burst, np.random.default_rng(k))
+        starts = np.flatnonzero(np.diff(np.r_[0, lost.astype(np.int8)]) == 1)
+        rate, mean_burst = lost.mean(), lost.sum() / max(starts.size, 1)
+        ok &= abs(rate / loss - 1) < 0.05 and abs(mean_burst / burst - 1) < 0.05
+        texts.append(f"({loss:g}, {burst:g}): rate {rate:.5f}, burst {mean_burst:.3f}")
+    return CheckResult("; ".join(texts), ok)
+
+
+# ---------------------------------------------------------------- 12. baseline order
+
+@register(
+    "12.1",
+    "Baseline order: O2 = 0 ≤ O1 ≤ B1, and B0 ≫ B1 in the arbitrary mode",
+    "Default config (arbitrary offsets) with a 10-minute idle; mean heading error over the motion phase, averaged "
+    "over 10 sessions of a 20 s synthetic walk (3 in quick mode).",
+    "Oracles bound the honest baseline from below; without box registration arbitrary offsets dominate.",
+    "O2 = 0 ≤ O1 ≤ B1; B0 > 5 × B1",
+    "pytest tests/test_validation.py -k check_12_1",
+)
+def _order(quick: bool) -> CheckResult:
+    from . import evaluate as ev
+
+    means = []
+    for seed in range(3 if quick else 10):
+        _, data, series = _simulate(None, seed=seed, **{"session.idle_s": 600.0})
+        e = ev.evaluate(data, series)
+        means.append(e[e["phase"] == "motion"].groupby("baseline")["err_heading_deg"].mean())
+    m = sum(means) / len(means)
+    ok = m["O2"] == 0.0 and m["O1"] <= m["B1"] and m["B0"] > 5 * m["B1"]
+    return CheckResult(", ".join(f"{k} {m[k]:.3f}°" for k in ("O2", "O1", "B1", "B0")), ok)

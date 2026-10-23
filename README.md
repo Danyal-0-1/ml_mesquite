@@ -59,7 +59,7 @@ tables and figures for the four baselines.
 | M1 | skeleton, environment, conventions, wire codec, CI | done on branch `m1-skeleton` (not pushed: repository is public) |
 | M2 | data: AMASS/SMPL+H instructions, DIODEM download, manifests, loaders, mapping | done on branch `m2-data` except the AMASS-dependent checks, which wait for the AMASS download |
 | M3 | thin end-to-end slice (offsets only → frames → Step 0 → B0, O2) | done on branch `m3-slice` (synthetic motion; AMASS when downloaded) |
-| M4 | full simulator, configs, CLI | not started |
+| M4 | full simulator, configs, CLI | done on branch `m4-simulator` |
 | M5 | splits, dataset, baselines, first results | not started |
 | M6 | complete documentation, report, tag `step1` | not started |
 

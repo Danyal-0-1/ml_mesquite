@@ -1,6 +1,6 @@
 # The simulator
 
-*Status: M3 (the thin slice: offsets only). M4 adds the full error model, sweeps and dataset generation.*
+*Status: M4: the full error model. M5 adds dataset generation, splits and sweeps over many sessions.*
 
 ## Picture first
 
@@ -29,9 +29,14 @@ python -m mesqsim baselines --run "$MESQ_OUTPUT_DIR/run_g<commit>_c<hash>_s1"
   (`datasheet`, `firmware`, `assumption` or `measured`) and a `source` note. A `sweep` list gives the values a
   sweep visits.
 - `mesqsim.config.Config.validate` refuses a parameter without a valid label or a source.
-- **Presets** in [configs/presets.yaml](../configs/presets.yaml) are named override sets used by the checks:
-  - `zero`: every error off, exact timing;
-  - `offsets_only`: arbitrary offsets and nothing else.
+- `python -m mesqsim params` prints every parameter with its value, label and source. `--label assumption` lists
+  only the assumptions: 34 of 40 today, all to be replaced by bench measurements.
+- **Presets** in [configs/presets.yaml](../configs/presets.yaml) are named override sets, applied in order with
+  `--preset` (repeatable):
+  - `zero`: every error off, no loss, exact timing (check 5.1);
+  - `offsets_only`: arbitrary offsets and nothing else (checks 5.2, 5.3);
+  - `stress`: the brief's stress settings (3 % scale factor, 1 reboot per pod per hour, 5 % loss in bursts of
+    10, 100 ms stalls).
 - **Overrides:** `--set key=value` with a dotted key. The value is parsed as YAML: `--set timing.decode_delay_ms=[0,0]`.
 - Units are in the parameter names. A range written `[a, b]` is a uniform draw per pod.
 
@@ -62,7 +67,17 @@ python -m mesqsim baselines --run "$MESQ_OUTPUT_DIR/run_g<commit>_c<hash>_s1"
 2. If a check fails, do not loosen its tolerance. Find out which convention or bookkeeping broke: most bugs in this
    project are sign, order or frame errors.
 
-## Add a new error term (from M4 on)
+## The error terms
+
+- **Modelled:** offsets, box-slot error, drift, scale factor × turning, angle random walk, fusion tilt-and-noise
+  error, reboots, sample-task stalls, burst radio loss, decode delay, clock rate error, arrival latency and
+  quantisation. Each one, with its model, value and label, is in [MATH.md §5](MATH.md).
+- **Random streams:** each term draws from its own stream: `pods`, `heading`, `drift`, `reboots`, `epochs`, `walk`,
+  `fusion`, `timing`, `radio`, `loss`, `timeline`.
+- **Not modelled** (each needs a measurement first): the chip rate's ±1 % drift over temperature, per-axis scale
+  factors, cross-axis sensitivity, and radio loss correlated across pods.
+
+## Add a new error term
 
 1. Add its parameters to `configs/default.yaml`, each with a label and a source.
 2. Give it its own random stream (`mesqsim.sim.rng.stream(seed, "<name>")`).

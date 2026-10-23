@@ -11,8 +11,16 @@
   Comparing each frame with the truth at its own sample time removes timing error, so the secondary metric
   isolates heading, fusion and quantisation error.
 
-Baselines B0 (no correction) and O2 (the true delta: its primary error is exactly 0) exist from M3; B1 and O1 are
-added in M4. Non-oracle baselines see only Step 0's output and session.json, never the labels.
+Baselines:
+
+* B0: delta_hat = 0, no correction after Step 0: the size of the problem.
+* B1: box registration, delta_hat_pc = wrap(h_p - h_c) from Step 0's box headings, constant afterwards: the honest
+  "no learning" baseline. (The T-pose snapshot removes mountings for display; with the true mountings used by the
+  secondary metric it changes nothing, so B1's numbers come from the box alone.)
+* O1: the true offsets wrap(a_c - a_p) of the current boot epochs (oracle): how much error is offset, not drift.
+* O2: the true delta (oracle): primary error exactly 0.
+
+Non-oracle baselines see only Step 0's output and session.json, never the labels.
 """
 
 from __future__ import annotations
@@ -25,7 +33,7 @@ from .conventions import geodesic_angle_rad, quat_conj, quat_mul, wrap_rad, yaw_
 
 __all__ = ["BASELINES", "Grid", "grid_from_labels", "estimate", "latest_frames", "evaluate"]
 
-BASELINES = ("B0", "O2")
+BASELINES = ("B0", "B1", "O1", "O2")
 
 
 class Grid:
@@ -52,6 +60,16 @@ def estimate(name: str, grid: Grid, series: pd.DataFrame, session: dict) -> np.n
     """delta_hat (K, 14) in radians for baseline ``name``."""
     if name == "B0":
         return np.zeros_like(grid.delta_rad)
+    if name == "B1":
+        from .step0 import box_headings
+
+        h = np.full(N_PODS, np.nan)
+        bh = box_headings(series, session)
+        h[bh["pod_id"].to_numpy()] = bh["heading_rad"].to_numpy()
+        d = np.array([wrap_rad(h[j.parent] - h[j.child]) for j in JOINTS])
+        return np.broadcast_to(d, grid.delta_rad.shape).copy()
+    if name == "O1":  # oracle: the true offsets of the current boot epochs
+        return grid.delta_offset_rad.copy()
     if name == "O2":  # oracle: reads the labels
         return grid.delta_rad.copy()
     raise ValueError(f"unknown baseline {name!r}; known: {BASELINES}")

@@ -77,6 +77,23 @@ timing:
     value: 1000.0
     label: assumption
     source: "pod milliseconds from boot to the first send (firmware start-up); unmeasured"
+  stall_ms:
+    value: 0.0
+    label: assumption
+    source: "brief §3.3, §4.3: optional sample-task stall of S ms every ~3 s, off by default; unmeasured"
+    sweep: [0.0, 50.0, 100.0, 200.0]
+  stall_period_s:
+    value: 3.0
+    label: assumption
+    source: "brief §4.3: one stall every 3 s of pod time"
+  stall_jitter_s:
+    value: 0.5
+    label: assumption
+    source: "each stall starts within +-jitter of its 3 s mark (uniform), so its phase on the send grid varies"
+  decode_busy_ms:
+    value: 1.0
+    label: assumption
+    source: "after a stall the decode task needs this long before the next decode; keeps ms_lo distinct per sample"
   pod_clock_ppm:
     value: 50.0
     label: assumption
@@ -87,6 +104,16 @@ timing:
     source: "arbitrary origin of the logger's host clock, so nothing can rely on host time = true time"
 
 radio:
+  loss_mean:
+    value: 0.02
+    label: assumption
+    source: "brief §4.3: two-state (Gilbert-Elliott) radio loss, stationary loss fraction; unmeasured"
+    sweep: [0.005, 0.02, 0.05]
+  burst_mean_frames:
+    value: 3.0
+    label: assumption
+    source: "brief §4.3: mean length of a run of lost frames; unmeasured"
+    sweep: [1.0, 3.0, 10.0]
   latency_min_ms:
     value: 2.0
     label: assumption
@@ -107,6 +134,41 @@ error_model:
     label: assumption
     source: "brief §4.3: heading error of each pod's slot in the box (normal, sigma)"
     sweep: [0.5, 2.0, 5.0]
+  drift_sigma_deg_per_min:
+    value: 0.2
+    label: assumption
+    source: "brief §4.3: residual gyro-bias drift b_i ~ N(0, sigma); undocumented by TDK; swept"
+    sweep: [0.05, 0.2, 1.0]
+  scale_factor_max:
+    value: 0.015
+    label: datasheet
+    source: "brief §4.3 citing ICM-20948 DS-000189 rev 1.3 (Tables 1 and 5): scale factor within +-1.5 % at 25 C, 3 % for stress; k_i uniform in +-max"
+    sweep: [0.015, 0.03]
+  arw_deg_per_sqrt_s:
+    value: 0.015
+    label: datasheet
+    source: "brief §4.3 citing ICM-20948 DS-000189 rev 1.3 (Tables 1 and 5): noise density 0.015 deg/s/sqrt(Hz); sigma(t) = N_g sqrt(t)"
+  tilt_sigma_deg:
+    value: 0.5
+    label: assumption
+    source: "brief §4.3: fusion tilt-and-noise error eta about 0.5 deg per axis (Gauss-Markov, body frame)"
+  tilt_tau_s:
+    value: 1.0
+    label: assumption
+    source: "correlation time of eta; unmeasured"
+  reboot_rate_per_h:
+    value: 0.0
+    label: assumption
+    source: "brief §4.3: default none; stress setting 1 per pod per hour (Poisson)"
+    sweep: [0.0, 1.0]
+  reboot_silence_s:
+    value: 3.0
+    label: assumption
+    source: "brief §3.3: a rebooting pod is silent for a few seconds"
+  idle_turns_sigma_per_sqrt_min:
+    value: 0.5
+    label: assumption
+    source: "brief §4.3: 'an assumed amount of turning' in the idle interval: whole turns ~ round(N(0, (s sqrt(min))^2))"
 
 battery:
   start_pct:

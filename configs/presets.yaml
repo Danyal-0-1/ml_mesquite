@@ -1,14 +1,36 @@
 # Named overrides of configs/default.yaml used by the checks (brief §9). Apply with --preset NAME.
 
-# Every error off, exact timing: B0 must be 0 up to quantisation and O2 exactly 0 (check 5).
+# Every error off, no loss, exact timing: B0 must be 0 up to quantisation and O2 exactly 0 (check 5).
 zero:
   error_model.offset_mode: none
   error_model.box_slot_deg: 0.0
+  error_model.drift_sigma_deg_per_min: 0.0
+  error_model.scale_factor_max: 0.0
+  error_model.arw_deg_per_sqrt_s: 0.0
+  error_model.tilt_sigma_deg: 0.0
+  error_model.reboot_rate_per_h: 0.0
   timing.decode_delay_ms: [0.0, 0.0]
   timing.pod_clock_ppm: 0.0
+  timing.stall_ms: 0.0
+  radio.loss_mean: 0.0
   radio.latency_jitter_ms: 0.0
 
 # Only the initial offsets, arbitrary mode, zero box-slot error: B1 = O1 = 0 while B0 is not (check 5).
 offsets_only:
   error_model.offset_mode: arbitrary
   error_model.box_slot_deg: 0.0
+  error_model.drift_sigma_deg_per_min: 0.0
+  error_model.scale_factor_max: 0.0
+  error_model.arw_deg_per_sqrt_s: 0.0
+  error_model.tilt_sigma_deg: 0.0
+  error_model.reboot_rate_per_h: 0.0
+  timing.stall_ms: 0.0
+  radio.loss_mean: 0.0
+
+# The brief's stress settings: scale factor 3 %, one reboot per pod per hour, 5 % loss in bursts of 10, stalls.
+stress:
+  error_model.scale_factor_max: 0.03
+  error_model.reboot_rate_per_h: 1.0
+  radio.loss_mean: 0.05
+  radio.burst_mean_frames: 10.0
+  timing.stall_ms: 100.0

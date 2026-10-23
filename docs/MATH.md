@@ -1,8 +1,6 @@
 # The mathematics
 
-*Status: M3. Conventions, target and correction, the measurement model as far as the M3 slice uses it (offsets),
-the timing model, Step 0 and the metrics. M4 adds drift, scale factor, random walk, tilt error, loss, stalls,
-reboots, box registration, B1 and O1.*
+*Status: M4. Complete for the simulator, Step 0 and the Step 1 baselines.*
 
 ## 1. Picture first
 
@@ -52,10 +50,10 @@ Parent at the root with ψ_p = 12°, child with ψ_c = 5°.
 
 ## 4. What cannot be known, as tests
 
-| statement | test |
+| statement | tests |
 |---|---|
-| Rotating every report by one Y(β) changes no target δ (exactly) | `test_common_yaw_leaves_targets_unchanged_exactly` |
-| Rotating one pod's frame by Y(γ) changes only the targets of its joints, by exactly ±γ | `test_single_pod_offset_moves_only_its_joints_by_gamma` |
+| Rotating every report by one Y(β) changes no target δ (exactly) and moves estimators only by quantisation | `test_common_yaw_leaves_targets_unchanged_exactly`; check 4.2 re-simulates a whole session with β = 73° added to every north: labels move < 1e-9°, B1 ≤ 0.5° |
+| Rotating one pod's frame by Y(γ) changes only the targets of its joints, by exactly ±γ | `test_single_pod_offset_moves_only_its_joints_by_gamma`; check 4.3 re-simulates with γ = 23° on one pod |
 | A correction acts about the vertical only, so tilt never changes | `test_correction_never_changes_tilt`, check 4.1 |
 
 ## 5. The measurement model and the session
@@ -64,41 +62,76 @@ Parent at the root with ψ_p = 12°, child with ψ_c = 5°.
 s_i(t)   true orientation of segment i (segment -> world); segment frame = SMPL canonical body frame
 m_i      mounting of pod i on its segment (pod -> segment), constant
 P_i(t)   = s_i(t)·m_i, the true pod orientation (pod -> world)
-η_i(t)   small tilt-and-noise error of the chip's fusion (M4)
+η_i(t)   small tilt-and-noise error of the chip's fusion, a rotation vector in pod axes
 
 what pod i reports:   q_i(t) = Y(−ψ_i(t)) · P_i(t) · Exp(η_i(t)),   canonicalised to w ≥ 0, then quantised
-heading of pod i's private frame:   ψ_i(t) = a_i + b_i·t + k_i·Θ_i(t) + w_i(t)   (+ a jump at each reboot)
+
+heading of pod i's private frame, in boot epoch e (owned by mesqsim/sim/heading.py):
+   ψ_i(t) = a_e + b_i·(t − boot_e) + k_i·(Θ_i(t) − Θ_i(boot_e)) + w_i(t)
 ```
 
-In M3, ψ_i(t) = a_i: a constant offset per pod.
+### 5.1 Every term, its value and its label
 
-| offset mode | a_i | meaning |
-|---|---|---|
-| `arbitrary` (default) | uniform in (−180°, 180°] | each chip picks an unrelated north |
-| `aligned` | heading of the pod in its box slot, wrap(box heading + ε_i) | the chip's north is its own start-up heading, so pods booted together agree up to the slot errors ε_i ~ N(0, σ_box²) |
-| `none` | 0 | for checks only |
+All values are in [configs/default.yaml](../configs/default.yaml). `python -m mesqsim params` prints them with
+their sources.
 
-**The session in true time** (seconds from the first power-on):
+| term | model | default | swept | label |
+|---|---|---|---|---|
+| offset a_e | `arbitrary`: uniform in (−180°, 180°]; `aligned`: the pod's own heading when its chip starts (in the box: box heading + ε_i), so its report starts at heading 0 | arbitrary | aligned, arbitrary | assumption |
+| box slot ε_i | N(0, σ_box²) about the vertical | σ_box = 2° | 0.5°, 2°, 5° | assumption |
+| drift b_i | N(0, σ_b²), constant per pod, counted from each boot | σ_b = 0.2 °/min | 0.05, 0.2, 1.0 °/min | assumption |
+| scale factor k_i | uniform in ±k_max | 1.5 % | 1.5 %, 3 % | datasheet |
+| angle random walk w_i | Brownian, variance N_g²·t | N_g = 0.015 °/s/√Hz (0.367° after 10 min) | — | datasheet |
+| fusion error η_i | Gauss–Markov per pod axis, stationary σ, correlation time τ | σ = 0.5°, τ = 1 s | — | assumption |
+| reboots | Poisson per pod; silent for 3 s; then count, clock and Θ restart and a new north a_e is chosen | 0 per hour | 0, 1 per hour | assumption |
+| idle turning | whole turns ~ round(N(0, (0.5·√minutes)²)) of the wearer | 0.5 turns/√min | — | assumption |
+| quantisation | trunc(float32(v)·32767), step about 0.0035° | — | — | firmware |
 
-1. **Box.** Pods lie flat with aligned axes: P_i = Y(box heading + ε_i).
-2. **Strapping.** Each pod moves to its strap during its own window:
-   P_i = Y(2π·n_i·g)·slerp(P_box, P_worn, g), with g a smoothstep of time and n_i whole turns.
-3. **T-pose.** s_i = Y(φ_T)·Rx(90°)·Exp(e_i): the SMPL rest pose, upright, facing φ_T, with posture error e_i
+### 5.2 Θ: the turning that the scale factor multiplies
+
+Θ_i(t) is the signed rotation of pod i about the world vertical since its first boot. It is the integral of the
+vertical component of the pod's world angular velocity.
+
+- The simulator integrates it along the true trajectory P_i on a 240 Hz grid, summing z(Log(P_{k+1}·P_k⁻¹)).
+- Tilting about a horizontal axis adds nothing, and turning back cancels.
+- One full turn is 2π exactly (`test_theta_counts_one_full_turn_despite_tilt_wobble`). With k = 1.5 % it gives
+  0.015 × 360° = 5.4° (check 6.3, through the whole simulator on a walk in a circle).
+- Θ grows during strapping (each pod's own whole turns while carried), during motion, and over the idle interval.
+- The idle interval is never recorded, so its turning is one step: the net twist about the vertical between the
+  pose before and after it, plus whole turns drawn from the idle-turning model. The random walk over the idle is
+  one increment N(0, N_g²·Δt). Inside the idle, Θ and w are interpolated linearly; nothing there is recorded.
+
+### 5.3 The session in true time (seconds from the first power-on)
+
+1. **Box.** Pods boot within 0.5 s of each other, lying flat with aligned axes: P_i = Y(box heading + ε_i).
+2. **Strapping** (30 s). Each pod moves to its strap during its own 2–6 s window:
+   P_i = Y(2π·n_i·g)·slerp(P_box, P_worn, g), with g a smoothstep of time and n_i ∈ {−1, 0, 1} whole turns.
+3. **T-pose** (3 s). s_i = Y(φ_T)·Rx(90°)·Exp(e_i): the SMPL rest pose, upright, facing φ_T, with posture error e_i
    (RMS angle 5°).
-4. **Idle.** Not recorded. The wearer holds the T-pose for the first half and the motion's first pose for the second.
-5. **Motion.** s_i(t) = Y(φ_m)·S_i(t − t_motion), with φ_m chosen so the motion starts facing φ_T ± 15°.
+4. **Idle** (0 s by default; swept 0, 10, 30 min). Not recorded. The wearer holds the T-pose for the first half
+   and the motion's first pose for the second.
+5. **Motion.** s_i(t) = Y(φ_m)·S_i(t − t_motion), the source clip turned so that it starts facing φ_T ± 15°.
 
-φ_T and the box heading are uniform: the room's heading is unknowable and the simulator draws it at random.
+φ_T and the box heading are uniform: the room's heading is unknowable, so the simulator draws it at random.
 
-**Timing (§3.3 of the brief):**
+### 5.4 Timing, held frames and the radio
 
-- The chip samples at f_i ~ U(50.1, 60.0) Hz, starting 0.2–0.5 s after boot.
-- Each sample is decoded 0–11 ms later. `ms_lo` = floor(pod ms at decode) mod 65,536. The pod clock runs at
-  1 + ρ_i, with ρ_i within ±50 ppm.
-- Sends follow the pod clock at ms = 1000 + id·31.25/17 + j·31.25 and carry the newest decoded sample. With
-  f_i > 32 Hz and decode jitter ≤ 11 ms, no send ever finds nothing new, so held frames need stalls (M4).
-- `count` = j mod 65,536.
-- Arrival = send + 2 ms + Exp(mean 3 ms), first-in first-out per pod; host time = arrival + an arbitrary epoch.
+- **Chip.** Samples at f_i ~ U(50.1, 60.0) Hz, starting 0.2–0.5 s after boot. Each sample is decoded 0–11 ms
+  later; `ms_lo` = floor(pod ms at decode) mod 65,536. The pod clock runs at 1 + ρ_i, with ρ_i within ±50 ppm.
+- **Send grid.** Sends follow the pod clock at ms = 1000 + id·31.25/17 + j·31.25 and carry the newest decoded
+  sample; `count` = j mod 65,536.
+- **Discarded samples.** The pod sends one of about f_i/32 samples, so a share 1 − 32/f_i is discarded: 0.361,
+  0.418 and 0.467 at 50.1, 55 and 60 Hz (check 7.1).
+- **Held frames.** With f_i > 32 Hz and decode jitter ≤ 11 ms, a send always finds something new, so held frames
+  need **stalls** (off by default).
+  - A stall of S ms comes every 3 ± 0.5 s. Nothing is decoded during it. At its end the newest waiting sample is
+    decoded, and the decode task needs 1 ms before the next, so distinct samples never share a `ms_lo`.
+  - Expected held frames per stall: (S + E[u])/T − 1 for S ≥ T = 31.25 ms, where E[u] = 1/(2f) + f·D²/12 is the
+    mean time since the last decode (D = 11 ms). Check 7.2 compares the simulated rate with this.
+- **Radio.** Losses follow a two-state Gilbert–Elliott chain per pod, with P(bad→good) = 1/B and
+  P(good→bad) = L/(1−L)·1/B, giving mean loss L and mean burst B (check 7.5; defaults L = 2 %, B = 3).
+- **Arrival.** Arrival = send + 2 ms + Exp(mean 3 ms), first-in first-out per pod; host time = arrival + an
+  arbitrary epoch.
 
 ## 6. Step 0 (owned by [mesqsim/step0.py](../mesqsim/step0.py); never reads labels)
 
@@ -123,6 +156,15 @@ Per pod, in arrival order:
      pod-clock drift over the gap).
 5. **Integrity.** q = int16 / 32767. Frames with |‖q‖ − 1| > 0.01 are kept but marked invalid. Quantisation alone
    moves the norm by less than 1.3·10⁻⁴. Valid quaternions are normalised and canonicalised.
+6. **Box registration.** h_i is the circular mean of heading(q_i) over pod i's valid box-phase frames of its first
+   boot epoch. In the box, q_i = Y(−a_i)·Y(box heading + ε_i), so h_i = box heading + ε_i − a_i, and
+   wrap(h_p − h_c) = wrap(a_c − a_p) + (ε_p − ε_c): the offset difference up to the slot errors. Only differences
+   between pods mean anything. In the aligned mode every h_i is 0, because each chip took its own box heading as
+   north.
+7. **T-pose snapshot**, as the suit does it: q_i(T) is the mean of pod i's T-pose frames, and
+   Δ_i(t) = q_i(t)·q_i(T)⁻¹. With no errors Δ_i(t) is the pod's true world rotation since the T-pose (tested to
+   0.02°). It removes the mountings for an avatar; the secondary metric uses the true mountings instead, so B1's
+   numbers come from the box alone.
 
 ## 7. Metrics and baselines (owned by [mesqsim/evaluate.py](../mesqsim/evaluate.py))
 
@@ -138,9 +180,29 @@ Per pod, in arrival order:
   J⁻¹Ĵ = s_c⁻¹·Y(a_p − a_c)·s_c, whose angle is |wrap(a_c − a_p)|. Check 5.2 confirms it through the decoded
   frames to within 0.0081°, which is quantisation.
 
-| baseline | δ̂ | from |
+| baseline | δ̂ | what its error measures |
 |---|---|---|
-| B0 | 0 | M3 |
-| O2 | the true δ (oracle) | M3 |
-| B1 | box registration, plus the T-pose | M4 |
-| O1 | the true offsets a_c − a_p (oracle) | M4 |
+| B0 | 0 | the whole problem: offsets, drift, turning, noise |
+| B1 | wrap(h_p − h_c) from box registration, constant | what a pipeline without learning leaves: slot errors, everything accrued since the box, and stale estimates after a reboot |
+| O1 | wrap(a_c − a_p), the true offsets of the current boot epochs (oracle, simulation only) | the error that is drift rather than offset |
+| O2 | the true δ (oracle) | nothing: its primary error must be exactly 0 (pipeline check) |
+
+Expected order (check 12.1): O2 = 0 ≤ O1 ≤ B1, and B0 ≫ B1 when the offsets are arbitrary. B1 cannot beat O1: its
+estimate is the true offset difference plus slot noise. In the aligned mode B0 ≈ B1, because the offsets already
+agree up to the slot errors.
+
+## 8. Why each check exists
+
+| check | what would be wrong if it failed |
+|---|---|
+| 1.x codec | frames decoded with wrong values, signs or wraps |
+| 2.x conventions | a sign, order or frame error somewhere downstream |
+| 3.1 worked example | the correction applied with the wrong sign (twice the error) |
+| 4.1–4.3 invariances | the pipeline depends on the unknowable room heading, or one pod's north leaks into other joints |
+| 5.1–5.3 zero corruption | error appears where none was put in: a bookkeeping, timing or metric bug |
+| 6.1–6.3 analytic growth | the random walk, drift or scale-factor term has the wrong scale, units or sign |
+| 7.1–7.5 timing | discards, held frames, unwrapping, flags or losses do not follow the firmware and radio models |
+| 8.1 reproducibility | results cannot be traced to (commit, config, seed) |
+| 10.x AMASS mapping | the wrong joint, axis, side or up direction feeds every simulated session |
+| 11.x DIODEM | the reality-check data are not what the loader assumes |
+| 12.1 baseline order | an oracle or a baseline is computed against the wrong labels |

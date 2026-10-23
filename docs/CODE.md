@@ -1,6 +1,6 @@
 # Code index
 
-*Status: M3. Updated at every milestone.*
+*Status: M4. Updated at every milestone.*
 
 ## How the modules connect
 
@@ -42,16 +42,16 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [mesqsim/sim/motion.py](../mesqsim/sim/motion.py) | motion source (AMASS or synthetic), nominal mountings, strapping path, facing |
 | [mesqsim/sim/session.py](../mesqsim/sim/session.py) | session plan: phases, host epoch, facings, every pod's drawn parameters |
 | [mesqsim/sim/truth.py](../mesqsim/sim/truth.py) | true pod orientation P_i(t) in every phase |
-| [mesqsim/sim/heading.py](../mesqsim/sim/heading.py) | ψ_i(t), the heading of each pod's private frame (offsets in M3) |
-| [mesqsim/sim/timing.py](../mesqsim/sim/timing.py) | chip samples, decode times, send grid, newest sample, ms_lo |
-| [mesqsim/sim/radio.py](../mesqsim/sim/radio.py) | arrival times (loss from M4) |
-| [mesqsim/sim/simulate.py](../mesqsim/sim/simulate.py) | one session end to end: frames, labels, session.json, meta |
-| [mesqsim/step0.py](../mesqsim/step0.py) | Step 0: unwrap count and ms_lo, reboots, fresh/held/lost, integrity |
+| [mesqsim/sim/heading.py](../mesqsim/sim/heading.py) | ψ_i(t) per boot epoch: offset, drift, scale factor × Θ (integrated from the trajectory), random walk; the idle bridge |
+| [mesqsim/sim/timing.py](../mesqsim/sim/timing.py) | chip samples, decode times, sample-task stalls, send grid, newest sample, ms_lo, per boot epoch |
+| [mesqsim/sim/radio.py](../mesqsim/sim/radio.py) | Gilbert–Elliott burst loss and arrival times |
+| [mesqsim/sim/simulate.py](../mesqsim/sim/simulate.py) | one session end to end: boot epochs, fusion error η, frames, labels, session.json, meta; `plan_hook` for the invariance checks |
+| [mesqsim/step0.py](../mesqsim/step0.py) | Step 0: unwrap count and ms_lo, reboots, fresh/held/lost, integrity, box registration, T-pose snapshot |
 | [mesqsim/evaluate.py](../mesqsim/evaluate.py) | baselines and the primary and secondary metrics |
 | [mesqsim/io.py](../mesqsim/io.py) | deterministic Parquet and JSON; the frames-table schema; session folders |
 | [mesqsim/runs.py](../mesqsim/runs.py) | run identity (commit, config hash, seed), run folders, listing and deleting |
 | [mesqsim/pipeline.py](../mesqsim/pipeline.py) | simulate a run, score a run, summaries |
-| [mesqsim/cli.py](../mesqsim/cli.py), [mesqsim/__main__.py](../mesqsim/__main__.py) | `python -m mesqsim simulate / baselines / list-runs / clean` |
+| [mesqsim/cli.py](../mesqsim/cli.py), [mesqsim/__main__.py](../mesqsim/__main__.py) | `python -m mesqsim simulate / baselines / params / list-runs / clean` |
 | [configs/default.yaml](../configs/default.yaml), [configs/presets.yaml](../configs/presets.yaml) | every parameter with label and source; presets for the checks |
 | [mesqsim/validation.py](../mesqsim/validation.py) | registry of the brief §9 checks: what, why, expected, command, and the computation |
 | [scripts/check_env.py](../scripts/check_env.py) | prints versions, OS, CPU; checks imports and data checksums |
@@ -62,7 +62,7 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [manifests/](../manifests/) | committed manifests: path, size, SHA-256 of every data file (data itself never committed) |
 | [scripts/validate.py](../scripts/validate.py) | runs every check and rewrites [VALIDATION.md](VALIDATION.md) |
 | [scripts/check_all.sh](../scripts/check_all.sh) | the full check: ruff, pytest, validation |
-| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_step0.py` (Step 0 on hand-built frames), `test_repo_hygiene.py` (rule 3), `test_validation.py` (all registered checks); `conftest.py` skips data tests when data are absent |
+| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_sim_full.py` (error-model units: Θ, η, loss, reboots, box registration, T-pose snapshot), `test_step0.py` (Step 0 on hand-built frames), `test_repo_hygiene.py` (rule 3), `test_validation.py` (every registered check, ids `check_<n>_<m>`); `conftest.py` skips data tests when data are absent |
 | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | CI: ruff, the synthetic tests and quick validation on every push and pull request |
 
 ## Where to extend

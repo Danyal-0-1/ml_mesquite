@@ -1,7 +1,11 @@
-"""From send to host: arrival times (brief §8 step 11). Radio loss is added in M4.
+"""From send to host: radio loss and arrival times (brief §8 steps 10 and 11).
 
-Arrival = send time + latency, latency = latency_min + Exp(mean latency_jitter). One pod's frames arrive in the
-order they were sent (the radio link is first-in, first-out), so arrival times are made non-decreasing per pod.
+* **Loss** follows a two-state Gilbert-Elliott chain per pod, one step per send: in the good state frames
+  arrive, in the bad state they are lost. With mean loss L and mean burst length B (frames):
+  P(bad -> good) = 1/B and P(good -> bad) = L/(1-L) · 1/B, so the stationary loss is L and bad runs last B on
+  average. B = 1 gives isolated losses.
+* **Arrival** = send time + latency, latency = latency_min + Exp(mean latency_jitter). One pod's frames arrive in
+  the order they were sent (the link is first-in, first-out), so arrival times are made non-decreasing per pod.
 """
 
 from __future__ import annotations
@@ -10,7 +14,27 @@ import numpy as np
 
 from ..config import Config
 
-__all__ = ["arrival_times"]
+__all__ = ["gilbert_elliott_lost", "arrival_times"]
+
+
+def gilbert_elliott_lost(n: int, loss_mean: float, burst_mean: float, rng: np.random.Generator) -> np.ndarray:
+    """Boolean mask of lost sends (length n) from the stationary two-state chain."""
+    lost = np.zeros(n, bool)
+    if loss_mean <= 0 or n == 0:
+        return lost
+    if not 0 < loss_mean < 1 or burst_mean < 1:
+        raise ValueError("need 0 < loss_mean < 1 and burst_mean >= 1")
+    p_bg = 1.0 / burst_mean
+    p_gb = loss_mean / (1.0 - loss_mean) * p_bg
+    bad = rng.random() < loss_mean  # start from the stationary distribution
+    pos = 0
+    while pos < n:  # alternate geometric sojourns (memoryless, so the first one needs no special case)
+        run = int(rng.geometric(p_bg if bad else p_gb))
+        if bad:
+            lost[pos : pos + run] = True
+        pos += run
+        bad = not bad
+    return lost
 
 
 def arrival_times(cfg: Config, t_send_s: np.ndarray, rng: np.random.Generator) -> np.ndarray:
