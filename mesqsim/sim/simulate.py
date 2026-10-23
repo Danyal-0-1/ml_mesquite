@@ -136,6 +136,13 @@ def simulate_session(cfg: Config, seed: int, motion: MotionSource, plan_hook=Non
         n_lost_radio += int(np.sum(lost & (interval >= 0)))
         epoch = seq["epoch"].to_numpy()
         keep_tick = knowable_ticks(received, epoch, interval)
+        # Boot epochs the recording can see: a pod that reboots twice while nothing is recorded (the idle) looks
+        # like one reboot to any logger. Labels number epochs as Step 0 must: in order of the boots that left at
+        # least one received frame. The true boot index stays in `boot_epoch`.
+        seen = np.unique(epoch[received])
+        observed = np.full(epoch.max() + 1, -1)
+        observed[seen] = np.arange(seen.size)
+        assert np.all(observed[epoch[keep_tick]] >= 0), "a knowable tick belongs to an epoch with no received frame"
 
         lab = seq[keep_tick].reset_index(drop=True)
         lab_received = received[keep_tick]
@@ -159,7 +166,8 @@ def simulate_session(cfg: Config, seed: int, motion: MotionSource, plan_hook=Non
 
         ticks.append(pd.DataFrame({
             "pod_id": np.full(len(lab), i, np.uint8),
-            "epoch": lab["epoch"].to_numpy(),
+            "epoch": observed[lab["epoch"].to_numpy()].astype(np.int32),
+            "boot_epoch": lab["epoch"].to_numpy(),
             "tick": lab["tick"].to_numpy(),
             "count": (lab["tick"].to_numpy() % 65536).astype(np.uint16),
             "phase": plan.phase_of(lab["t_send_s"].to_numpy()).astype(str),
