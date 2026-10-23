@@ -715,7 +715,7 @@ def _heading_pods(n_sessions: int, cfg_overrides: dict, motion: str, hook=None):
     "6.1",
     "Random walk only: σ of ψ at 600 s is 0.367°, of a pair 0.519°",
     "Preset 'zero' plus the datasheet angle random walk (0.015 °/s/√Hz); idle chosen so that 600 s after each pod's "
-    "boot falls in the motion phase; ψ over 2,250 pods (600 in quick mode) and over the 14 parent-child pairs.",
+    "boot falls in the motion phase; ψ over 4,500 pods (600 in quick mode) and over the 14 parent-child pairs.",
     "Pins the random walk's scaling σ = N_g √t (datasheet: 0.367° after 10 min, √2 × for a pair).",
     "within 5 % of 0.367° and 0.519° (15 % in quick mode)",
     "pytest tests/test_validation.py -k check_6_1",
@@ -723,7 +723,7 @@ def _heading_pods(n_sessions: int, cfg_overrides: dict, motion: str, hook=None):
 def _arw(quick: bool) -> CheckResult:
     from .body import JOINTS
 
-    n = 40 if quick else 150
+    n = 40 if quick else 300
     pods = _heading_pods(n, {"error_model.arw_deg_per_sqrt_s": 0.015, "session.idle_s": 560.0}, "synthetic:stand:10")
     psi = np.array([float(hd.psi(p.boot_s + 600.0)) for _, p, hd in pods])
     by_session = psi.reshape(n, 15)
