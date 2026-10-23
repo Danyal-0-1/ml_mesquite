@@ -103,9 +103,13 @@ def _dense_segments(plan: SessionPlan, t0: float, t_end: float) -> list[np.ndarr
         n = int(np.ceil((b - a) * DENSE_HZ))
         return np.r_[a + np.arange(n) * dt, b] if b > a else np.array([a])
 
+    def with_boundaries(ts):  # phase boundaries are grid points, so an instantaneous pose change sits between two
+        inside = [b for b in (tpose_end, 0.5 * (tpose_end + m0), m0) if ts[0] < b < ts[-1]]
+        return np.unique(np.r_[ts, inside])
+
     if m0 - tpose_end <= 2.0 * IDLE_MARGIN_S:
-        return [grid(t0, t_end)]
-    return [grid(t0, tpose_end + IDLE_MARGIN_S), grid(m0 - IDLE_MARGIN_S, t_end)]
+        return [with_boundaries(grid(t0, t_end))]
+    return [with_boundaries(grid(t0, tpose_end + IDLE_MARGIN_S)), with_boundaries(grid(m0 - IDLE_MARGIN_S, t_end))]
 
 
 def build_pod_heading(plan: SessionPlan, motion: MotionSource, pod: int, epochs: list, drift_rad_per_s: float,
