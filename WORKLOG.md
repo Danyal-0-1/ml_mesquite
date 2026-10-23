@@ -264,8 +264,8 @@ pushed (repository still public).
   240 Hz grid points and Θ at motion start was interpolated halfway through it. Phase boundaries are now exact grid
   points: 360.000°, ψ change 5.4000°.
 - `bash scripts/check_all.sh` on commit `e644460` → ruff clean; pytest **114 passed, 8 skipped** (AMASS);
-  validation **30 passed, 0 failed, 4 skipped** (10.2–10.5 need AMASS). The full output is in the M4 pull-request
-  text. Highlights:
+  validation **30 passed, 0 failed, 4 skipped** (10.2–10.5 need AMASS). Every number is in docs/VALIDATION.md.
+  Highlights:
   - 4.2: a common 73° turn of every north moves the labels by 1.5e-13° and B1 by 0.0038°;
   - 4.3: one pod's 23° turn moves l_hip by +23.000000° and l_knee by −23.000000°, nothing else, and leaves the other
     pods' frames identical;
