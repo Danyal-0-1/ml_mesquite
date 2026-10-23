@@ -180,6 +180,24 @@ battery:
     label: assumption
     source: "battery drain; cosmetic"
 
+dataset:
+  window_s:
+    value: 20.0
+    label: assumption
+    source: "experiment design: each sequence is cut into non-overlapping windows of this length; shorter tails are dropped"
+  windows_per_sequence:
+    value: 3
+    label: assumption
+    source: "experiment design: at most this many windows from the start of each sequence"
+  motion_start_min:
+    value: [1, 10, 30]
+    label: assumption
+    source: "brief §4.7: report at 1, 10 and 30 min since boot; one session per window and value (idle = 60 m - box - strapping - T-pose)"
+  variants:
+    value: 1
+    label: assumption
+    source: "experiment design: independent corruption draws (seeds) per window and motion start; all stay in the sequence's split"
+
 eval:
   grid_hz:
     value: 32.0

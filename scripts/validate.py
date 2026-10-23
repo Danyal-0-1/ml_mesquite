@@ -26,6 +26,8 @@ FIGURES = [
      "(check 10)."),
     ("stick_figure_synthetic.png", "The same mapping on a synthetic walk (used until AMASS is downloaded): "
      "subject's left in blue, right in orange, +Z up."),
+    ("sim_random_walk.png", "Simulator, random walk only: spread of ψ for one pod and for parent-child pairs against "
+     "the datasheet scaling N_g·√t (checks 6.1); error bars are ±1 standard error of the spread."),
     ("diodem_relative_heading.png", "DIODEM arm exp01, hinge seg2 → seg3: six-axis VQF relative heading against "
      "optical truth (check 11.3). No claims are drawn from it in Step 1."),
 ]

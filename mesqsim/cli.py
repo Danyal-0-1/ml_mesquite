@@ -4,6 +4,8 @@
                [--set key=value ...] [--out DIR]
     baselines  --run DIR                        decode with Step 0, score B0, B1, O1, O2, write results/
     params     [--config FILE] [--label assumption]   every parameter with its value, label and source
+    split      [--write] [--force]              split AMASS subjects 70/15/15 -> manifests/split_manifest.csv
+    dataset    --seed 1 [--source synthetic|amass] [--set ...]   simulate a dataset into a run folder and score it
     list-runs                                   runs under the output directory
     clean      --run DIR | --all --yes          delete run folders (only run_* folders in the output directory)
 """
@@ -61,6 +63,62 @@ def cmd_params(args) -> int:
     return 0
 
 
+def cmd_split(args) -> int:
+    import pandas as pd
+
+    from .data import amass
+    from .paths import manifest_dir
+    from .splits import assign_splits, check_manifest, manifest_sha256, write_manifest
+
+    files = amass.motion_files()
+    if not files:
+        print(f"no AMASS motion files under {amass.amass_dir()}; see docs/DATA.md")
+        return 1
+    rows = []
+    for f in files:
+        subset, subject = amass.subset_subject(f)
+        rows.append({"path": f.relative_to(amass.amass_dir()).as_posix(), "subset": subset, "subject": subject})
+    df = assign_splits(pd.DataFrame(rows))
+    problems = check_manifest(df)
+    for p in problems:
+        print("PROBLEM:", p)
+    print(df.groupby(["subset", "split"])["subject"].nunique().unstack(fill_value=0).to_string())
+    if not args.write:
+        print("dry run: add --write to write manifests/split_manifest.csv")
+        return 1 if problems else 0
+    path, frozen = manifest_dir() / "split_manifest.csv", manifest_dir() / "split_manifest.sha256"
+    if frozen.is_file() and not args.force:
+        tmp = path.with_suffix(".new.csv")
+        new_hash = write_manifest(df, tmp)
+        tmp.unlink()
+        if new_hash != frozen.read_text().split()[0]:
+            print("REFUSED: the split manifest is frozen and the new one differs; --force to replace (ask Danyal)")
+            return 1
+    digest = write_manifest(df, path)
+    if not frozen.is_file():
+        frozen.write_text(f"{digest}  split_manifest.csv\n", encoding="utf-8", newline="\n")
+    print(f"wrote {path} (SHA-256 {digest}, verified: {manifest_sha256(path) == digest})")
+    return 1 if problems else 0
+
+
+def cmd_dataset(args) -> int:
+    from .dataset import amass_sources, generate, synthetic_sources
+    from .paths import manifest_dir
+    from .pipeline import score_run
+
+    cfg = _config(args)
+    manifest = manifest_dir() / "split_manifest.csv"
+    if args.source == "amass":
+        sources = amass_sources(manifest)
+    else:
+        sources = synthetic_sources(args.subjects_per_kind)
+    folder = generate(cfg, args.seed, sources, max_sequences=args.max_sequences)
+    summary = score_run(folder)
+    print(summary[summary["joint_name"] == "all"].to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+    print(folder)
+    return 0
+
+
 def cmd_list_runs(args) -> int:
     runs = list_runs()
     print(f"{len(runs)} run(s) in {output_dir()}")
@@ -110,6 +168,21 @@ def main(argv=None) -> int:
     pa.add_argument("--config", default=str(DEFAULT_CONFIG))
     pa.add_argument("--label", choices=["datasheet", "firmware", "assumption", "measured"])
     pa.set_defaults(fn=cmd_params)
+
+    sp = sub.add_parser("split", help="assign AMASS subjects to train/val/test")
+    sp.add_argument("--write", action="store_true")
+    sp.add_argument("--force", action="store_true", help="replace a frozen manifest (only with Danyal's approval)")
+    sp.set_defaults(fn=cmd_split)
+
+    d = sub.add_parser("dataset", help="simulate a dataset and score it")
+    d.add_argument("--config", default=str(DEFAULT_CONFIG))
+    d.add_argument("--preset", action="append")
+    d.add_argument("--set", action="append")
+    d.add_argument("--seed", type=int, required=True)
+    d.add_argument("--source", choices=["synthetic", "amass"], default="synthetic")
+    d.add_argument("--subjects-per-kind", type=int, default=4)
+    d.add_argument("--max-sequences", type=int)
+    d.set_defaults(fn=cmd_dataset)
 
     lr = sub.add_parser("list-runs", help="list run folders")
     lr.set_defaults(fn=cmd_list_runs)

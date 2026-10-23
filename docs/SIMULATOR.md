@@ -1,6 +1,6 @@
 # The simulator
 
-*Status: M4: the full error model. M5 adds dataset generation, splits and sweeps over many sessions.*
+*Status: M5: the full error model, datasets, sweeps and the results command.*
 
 ## Picture first
 
@@ -21,7 +21,33 @@ python -m mesqsim simulate --seed 3 --motion "$MESQ_DATA_DIR/amass/CMU/01/01_01_
 python -m mesqsim baselines --run "$MESQ_OUTPUT_DIR/run_g<commit>_c<hash>_s1"
 ```
 
-`--motion` takes `synthetic:<kind>[:<seconds>]` (`tpose`, `stand`, `walk`, `circle`) or a path to an AMASS file.
+`--motion` takes `synthetic:<kind>[:<seconds>[:<seed>]]` (`tpose`, `stand`, `walk`, `circle`) or a path to an
+AMASS file.
+
+## Datasets, sweeps and results
+
+```bash
+python -m mesqsim split --write                  # AMASS: subjects -> train/val/test (docs/DATA.md §3)
+python -m mesqsim dataset --seed 1 --source amass     # or --source synthetic; simulate + score
+python scripts/make_results.py                    # the default dataset + every sweep -> docs/RESULTS_STEP1.md
+```
+
+- **A dataset** cuts every source sequence into windows of `dataset.window_s` (at most
+  `dataset.windows_per_sequence` per sequence).
+  - For each window it simulates one session per `dataset.motion_start_min` value (1, 10, 30). The idle interval is
+    60·m minus box, strapping and T-pose, so the motion starts m minutes after boot. It also simulates one session
+    per `dataset.variants`.
+  - Each session's seed comes from (run seed, sequence, window, start, variant).
+  - The run folder holds `sessions/<id>/` and `dataset.csv` (id, source, subset, subject, split, window, motion start,
+    variant, seed). `results/errors.parquet` keeps the motion-phase steps with each session's split and motion start.
+- **Sweeps** (`scripts/make_results.py`) vary one parameter at a time around the default, over the values under
+  `sweep` in the config (offset mode, box slot, drift, scale factor, reboots, stalls, loss, burst). Motion starts at
+  10 min, one window per sequence. Every value reuses the same session seeds (common random numbers), so a
+  difference between values comes from the swept parameter alone.
+- **Results**: `scripts/make_results.py` writes `docs/RESULTS_STEP1.md` (tables 1–4 and the parameter set),
+  `docs/figures/results_growth.png` and `results_sweeps.png`, plus CSV tables in the default run's `results/`. It
+  reuses scored runs of the same (commit, config, seed); `--fresh` regenerates. Without AMASS it uses synthetic
+  stand-ins and labels every table "PROVISIONAL: SYNTHETIC MOTION".
 
 ## Configure it
 

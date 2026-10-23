@@ -60,7 +60,7 @@ tables and figures for the four baselines.
 | M2 | data: AMASS/SMPL+H instructions, DIODEM download, manifests, loaders, mapping | done on branch `m2-data` except the AMASS-dependent checks, which wait for the AMASS download |
 | M3 | thin end-to-end slice (offsets only → frames → Step 0 → B0, O2) | done on branch `m3-slice` (synthetic motion; AMASS when downloaded) |
 | M4 | full simulator, configs, CLI | done on branch `m4-simulator` |
-| M5 | splits, dataset, baselines, first results | not started |
+| M5 | splits, dataset, baselines, first results | done on branch `m5-results`: machinery complete; results provisional on synthetic motion until AMASS |
 | M6 | complete documentation, report, tag `step1` | not started |
 
 ## Quickstart (so far)
@@ -87,6 +87,10 @@ python scripts/make_figures.py        # regenerates docs/figures
 # 5. Simulate one session and score it (see docs/SIMULATOR.md)
 python -m mesqsim simulate --seed 1
 python -m mesqsim baselines --run "$MESQ_OUTPUT_DIR"/run_g*_s1
+
+# 6. The results: splits (after AMASS), then every table and figure from one command
+python -m mesqsim split --write
+python scripts/make_results.py        # -> docs/RESULTS_STEP1.md
 ```
 
 ## Where things are
@@ -97,7 +101,7 @@ python -m mesqsim baselines --run "$MESQ_OUTPUT_DIR"/run_g*_s1
 | [tests/](tests/) | pytest suite; runs without licensed data |
 | [scripts/](scripts/) | `check_env.py`, `check_all.sh`, `validate.py`, `download_diodem.py`, `verify_amass.py`, `make_figures.py` |
 | [manifests/](manifests/) | name, size and SHA-256 of every data file |
-| [docs/](docs/) | PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, figures; later RESULTS, MUST_KNOW |
+| [docs/](docs/) | PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1, figures; later MUST_KNOW |
 | [configs/](configs/) | `default.yaml` (every parameter, labelled), `presets.yaml` |
 | [WORKLOG.md](WORKLOG.md) | one entry per session or milestone: what changed, commands run, decisions |
 | `data/`, `outputs/` | git-ignored; licensed data and generated runs never enter git |

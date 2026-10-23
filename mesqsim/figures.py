@@ -14,7 +14,7 @@ import numpy as np
 from . import plotstyle
 from .conventions import quat_rotate
 
-__all__ = ["GENERIC_BONES", "stick_positions", "stick_figure", "diodem_figure"]
+__all__ = ["GENERIC_BONES", "stick_positions", "stick_figure", "diodem_figure", "random_walk_figure"]
 
 # Bone vectors in the canonical SMPL body frame (x: subject's left, y: up, z: forward), metres.
 # Drawing aid only (label: assumption); never used in any computation.
@@ -109,6 +109,39 @@ def diodem_figure(res: dict, label: str, out: Path) -> Path:
     a2.set_xlabel("time since start of trial (min)")
     a2.annotate(f"{res['delta_deg'][-1]:+.1f}°", (t_min[-1], res["delta_deg"][-1]), xytext=(4, 0),
                 textcoords="offset points", va="center", fontsize=8, color=plotstyle.INK_2)
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, metadata={"Software": None})
+    plt.close(fig)
+    return out
+
+
+def random_walk_figure(points: list, n_pods: int, out: Path) -> Path:
+    """Measured spread of psi (one pod) and of a parent-child pair against N_g sqrt(t).
+
+    ``points``: (t_s, sigma_single_deg, sigma_pair_deg) from the simulator with only the random walk switched on.
+    """
+    import matplotlib.pyplot as plt
+
+    plotstyle.apply()
+    t = np.array([p[0] for p in points])
+    s1 = np.array([p[1] for p in points])
+    s2 = np.array([p[2] for p in points])
+    tt = np.linspace(0, t.max() * 1.05, 200)
+    n_g = 0.015
+    fig, ax = plt.subplots(figsize=(7.2, 4.0))
+    ax.plot(tt / 60, n_g * np.sqrt(tt), color=plotstyle.SERIES[0], lw=1.5, label="one pod: N_g·√t (datasheet)")
+    ax.plot(tt / 60, n_g * np.sqrt(2 * tt), color=plotstyle.SERIES[1], lw=1.5, label="pair: √2·N_g·√t")
+    se = 1 / np.sqrt(2 * n_pods)
+    ax.errorbar(t / 60, s1, yerr=s1 * se, fmt="o", color=plotstyle.SERIES[0], ms=6, capsize=3,
+                label=f"simulated, {n_pods} pods")  # fmt: skip
+    ax.errorbar(t / 60, s2, yerr=s2 * se, fmt="s", color=plotstyle.SERIES[1], ms=6, capsize=3,
+                label="simulated, pairs")  # fmt: skip
+    ax.set_xlabel("time since boot (min)")
+    ax.set_ylabel("spread of ψ (deg, standard deviation)")
+    ax.set_title("Angle random walk in the simulator against the datasheet scaling", loc="left")
+    ax.set_ylim(bottom=0)
+    ax.legend(loc="upper left")
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, metadata={"Software": None})

@@ -1,7 +1,8 @@
 # Data
 
-*Status: M2. AMASS and SMPL+H instructions written; AMASS **not downloaded yet** (waiting on the collaborator's
-registration). DIODEM downloaded and verified. Splits are added in M5.*
+*Status: M5. AMASS and SMPL+H instructions written; AMASS **not downloaded yet** (waiting on the collaborator's
+registration). DIODEM downloaded and verified. The split tool is ready; the AMASS split manifest waits for the
+download.*
 
 ## Picture first
 
@@ -178,10 +179,25 @@ Observation, recorded only (arm exp01, all 13 motions, 6.13 min; numbers from ch
   0.6 °/s (e.g. seg2: −0.54, −0.20, −0.64 °/s). That matches the drift rate: 0.5 °/s is 30° per minute. It is the
   residual-bias effect the brief's drift term b_i models.
 
-## 3. Splits
+## 3. Splits (owned by [mesqsim/splits.py](../mesqsim/splits.py))
 
-To be written in M5: split by subject within each AMASS subset (70/15/15), TotalCapture excluded from training, all
-windows and corruption variants of a sequence in one split, manifest CSV with its SHA-256 in `WORKLOG.md`.
+- **By subject, within each subset.** Every sequence of one subject goes to one split: 70 % train, 15 % val, 15 % test
+  by number of subjects, apportioned by largest remainder. A subset with 20 subjects gets 14/3/3; one with 3 gets
+  2/1/0; nothing is lost to rounding.
+- **Stable order.** Subjects are ordered by SHA-256 of `mesquite-step1-splits-v1:<subset>:<subject>`, not by a random
+  draw. Shuffling the file list, or adding a new subset, does not move any existing subject (tested).
+- **TotalCapture** is never trained on: all its subjects go to `holdout`, a possible later test set.
+- **Windows and variants.** The dataset generator looks up each sequence's split in the manifest. Every window and
+  every corruption variant of a sequence lands in that split (check 9.3).
+- **The manifest.** `python -m mesqsim split --write` writes `manifests/split_manifest.csv` (columns `path` relative
+  to `$MESQ_DATA_DIR/amass`, `subset`, `subject`, `split`; names only, no data) and records its SHA-256 in
+  `manifests/split_manifest.sha256`.
+- **Freezing.** Once the hash file exists, the manifest is frozen: `split --write` refuses to replace it with a
+  different one (`--force` overrides, and needs Danyal's approval), and check 9.2 fails if the file changes.
+- **Status:** not yet written (AMASS not downloaded). After the download: run `split --write`, record the SHA-256 in
+  `WORKLOG.md`, and Danyal approves and freezes it before Step 2.
+- **Provisional results without AMASS** use synthetic stand-in sequences (`dataset.synthetic_sources`: walking,
+  turning in a circle, standing; four pseudo-subjects each), split by the same rules.
 
 ## 4. Real suit recordings
 

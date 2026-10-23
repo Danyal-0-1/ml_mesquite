@@ -885,3 +885,90 @@ def _order(quick: bool) -> CheckResult:
     m = sum(means) / len(means)
     ok = m["O2"] == 0.0 and m["O1"] <= m["B1"] and m["B0"] > 5 * m["B1"]
     return CheckResult(", ".join(f"{k} {m[k]:.3f}°" for k in ("O2", "O1", "B1", "B0")), ok)
+
+
+# ---------------------------------------------------------------- 9. splits
+
+@register(
+    "9.1",
+    "Splits by subject; TotalCapture held out; deterministic",
+    "Split a synthetic AMASS-like file list (CMU 20 subjects, KIT 3, SFU 1, TotalCapture 5; 2 sequences each), "
+    "shuffle the rows and split again.",
+    "Leakage between splits would make every later comparison optimistic (brief §5.1).",
+    "no subject in two splits; CMU 14/3/3; every TotalCapture sequence in 'holdout'; identical output after shuffling",
+    "pytest tests/test_splits.py",
+)
+def _splits_logic(quick: bool) -> CheckResult:
+    import pandas as pd
+
+    from .splits import assign_splits, check_manifest
+
+    rows = [{"path": f"{sub}/S{s:02d}/q{q}_poses.npz", "subset": sub, "subject": f"S{s:02d}"}
+            for sub, n in (("CMU", 20), ("KIT", 3), ("SFU", 1), ("TotalCapture", 5))
+            for s in range(n) for q in range(2)]  # fmt: skip
+    df = pd.DataFrame(rows)
+    a, b = assign_splits(df), assign_splits(df.sample(frac=1.0, random_state=7))
+    per = a[a["subset"] == "CMU"].groupby("split")["subject"].nunique().to_dict()
+    tc = a.loc[a["subset"] == "TotalCapture", "split"].unique().tolist()
+    problems = check_manifest(a)
+    ok = not problems and per == {"train": 14, "val": 3, "test": 3} and tc == ["holdout"] and a.equals(b)
+    return CheckResult(f"CMU {per}; TotalCapture {tc}; problems {problems or 'none'}; shuffle-invariant {a.equals(b)}",
+                       ok)  # fmt: skip
+
+
+@register(
+    "9.2",
+    "The AMASS split manifest: no subject in two splits, hash unchanged",
+    "Read manifests/split_manifest.csv; check it; compare its SHA-256 with the frozen manifests/split_manifest.sha256.",
+    "After Danyal freezes the split, any change to it must be deliberate and visible.",
+    "no problems; SHA-256 equal to the frozen value",
+    "python -m mesqsim split",
+)
+def _splits_manifest(quick: bool) -> CheckResult:
+    import pandas as pd
+
+    from .paths import manifest_dir
+    from .splits import check_manifest, manifest_sha256
+
+    path, frozen = manifest_dir() / "split_manifest.csv", manifest_dir() / "split_manifest.sha256"
+    if not path.is_file():
+        return CheckResult("no split manifest yet (needs AMASS: python -m mesqsim split --write)", None)
+    df = pd.read_csv(path)
+    problems = check_manifest(df)
+    digest = manifest_sha256(path)
+    want = frozen.read_text().split()[0] if frozen.is_file() else None
+    counts = df.groupby("split")["subject"].nunique().to_dict()
+    return CheckResult(f"{len(df)} sequences, subjects per split {counts}; problems {problems or 'none'}; "
+                       f"SHA-256 {digest[:12]}… frozen {want[:12] + '…' if want else 'not yet'}",
+                       not problems and (want is None or want == digest))  # fmt: skip
+
+
+@register(
+    "9.3",
+    "Every window and variant of a sequence stays in its split",
+    "Generate a small dataset (synthetic sources, 2 windows, 2 variants per window) and read its dataset.csv.",
+    "Windows of one sequence are near-duplicates; if they straddled splits, test data would leak into training.",
+    "each source sequence has exactly one split; every session seed distinct",
+    "pytest tests/test_splits.py -k variant",
+)
+def _splits_dataset(quick: bool) -> CheckResult:
+    import tempfile
+    from pathlib import Path
+
+    import pandas as pd
+
+    from .config import load_config
+    from .dataset import generate, synthetic_sources
+    from .paths import REPO_ROOT
+
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml").with_overrides({
+        "dataset.window_s": 4.0, "dataset.windows_per_sequence": 2, "dataset.motion_start_min": [1],
+        "dataset.variants": 2,
+    })  # fmt: skip
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = generate(cfg, 3, synthetic_sources(2, 10.0), out_dir=Path(tmp) / "run", log=lambda s: None)
+        ds = pd.read_csv(folder / "dataset.csv")
+    per_source = ds.groupby("source")["split"].nunique()
+    ok = bool((per_source == 1).all()) and ds["seed"].nunique() == len(ds)
+    return CheckResult(f"{len(ds)} sessions from {ds['source'].nunique()} sequences; splits per sequence "
+                       f"{sorted(per_source.unique().tolist())}; distinct seeds {ds['seed'].nunique()}", ok)

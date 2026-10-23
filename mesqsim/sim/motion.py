@@ -94,14 +94,28 @@ class MotionSource:
 
     @classmethod
     def from_spec(cls, spec: str, spine_joint: int = amass.SPINE3) -> MotionSource:
-        """``synthetic:<kind>[:<seconds>]`` or a path to an AMASS ``.npz`` file."""
+        """``synthetic:<kind>[:<seconds>[:<seed>]]`` or a path to an AMASS ``.npz`` file."""
         if spec.startswith("synthetic:"):
             from ..synth import make_sequence
 
             parts = spec.split(":")
             duration = float(parts[2]) if len(parts) > 2 else 20.0
-            return cls.from_sequence(make_sequence(parts[1], duration, 60.0, seed=0), spine_joint)
+            seed = int(parts[3]) if len(parts) > 3 else 0
+            return cls.from_sequence(make_sequence(parts[1], duration, 60.0, seed=seed), spine_joint)
         return cls.from_sequence(amass.load_sequence(spec), spine_joint)
+
+    def window(self, start_s: float, length_s: float) -> MotionSource:
+        """The clip from ``start_s`` lasting ``length_s`` (whole source frames; both ends included)."""
+        k0 = int(round(start_s * self.fps))
+        k1 = k0 + int(round(length_s * self.fps))
+        if k1 >= self.seg_q.shape[0]:
+            raise ValueError(f"window [{start_s}, {start_s + length_s}] s exceeds the {self.duration_s:.2f} s clip")
+        return MotionSource(self.seg_q[k0 : k1 + 1].copy(), self.fps, f"{self.name}@{start_s:g}s")
+
+    def n_windows(self, length_s: float) -> int:
+        """Number of whole non-overlapping windows of ``length_s`` in the clip."""
+        frames = int(round(length_s * self.fps))
+        return max(0, (self.seg_q.shape[0] - 1) // frames)
 
     def at(self, tau_s: np.ndarray, pod: int) -> np.ndarray:
         """Slerp of segment ``pod`` to times ``tau_s`` (seconds from the first frame), clamped to the clip."""

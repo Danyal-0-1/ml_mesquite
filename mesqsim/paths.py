@@ -26,5 +26,6 @@ def output_dir() -> Path:
 
 
 def manifest_dir() -> Path:
-    """Committed manifests (file name, size, SHA-256) of every data file."""
-    return REPO_ROOT / "manifests"
+    """Committed manifests (file name, size, SHA-256) of every data file. ``MESQ_MANIFEST_DIR`` overrides it
+    (tests only, so they never write into the repository)."""
+    return Path(os.environ.get("MESQ_MANIFEST_DIR", REPO_ROOT / "manifests"))

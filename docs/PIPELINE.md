@@ -1,7 +1,6 @@
 # Pipeline
 
-*Status: M4. Every stage, with the full error model, Step 0 (including box registration and the T-pose
-snapshot) and the four baselines. M5 adds dataset generation and splits.*
+*Status: M5. Every stage, from one session to a dataset of sessions and the results tables.*
 
 ## Picture first
 
@@ -25,6 +24,9 @@ frames.parquet + session.json ─► STEP 0 ─► series.parquet ─► baselin
 |---|---|---|
 | simulate one session | `python -m mesqsim simulate --seed 1 [--motion synthetic:walk:20 \| path/to/seq_poses.npz] [--preset NAME] [--set key=value]` | `$MESQ_OUTPUT_DIR/run_g<commit>_c<config hash>_s<seed>/sessions/s000/` |
 | decode and score | `python -m mesqsim baselines --run <run folder>` | `series.parquet` per session; `results/errors.parquet`, `summary.csv`, `summary.md` |
+| split AMASS subjects | `python -m mesqsim split --write` | `manifests/split_manifest.csv` and `.sha256` |
+| simulate and score a dataset | `python -m mesqsim dataset --seed 1 --source amass\|synthetic` | run folder with `sessions/`, `dataset.csv`, `results/` |
+| results tables and figures | `python scripts/make_results.py` | `docs/RESULTS_STEP1.md`, `docs/figures/results_*.png` |
 | list runs | `python -m mesqsim list-runs` | |
 | delete runs | `python -m mesqsim clean --run <folder>` or `clean --all --yes` | |
 

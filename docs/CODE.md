@@ -1,6 +1,6 @@
 # Code index
 
-*Status: M4. Updated at every milestone.*
+*Status: M5. Updated at every milestone.*
 
 ## How the modules connect
 
@@ -14,6 +14,9 @@ sim/*       ◄── pipeline: motion → session plan → truth, timing, radio
 step0       ◄── pipeline, evaluate (decoded series); reads frames + session.json only
 evaluate    ◄── pipeline (baselines, primary and secondary metrics)
 io, runs    ◄── pipeline, cli (session folders, run identity)
+splits      ◄── dataset, cli split, validation 9.x
+dataset     ◄── cli dataset, scripts/make_results.py (many sessions, each in its sequence's split)
+results     ◄── scripts/make_results.py (tables, figures)
 manifest    ◄── scripts/check_env.py, data/diodem (download), scripts/verify_amass.py
 data/net    ◄── data/diodem (HTTP session: OS trust store, User-Agent, MD5-verified download)
 data/amass  ◄── synth (writes AMASS-format files), figures, (later) simulator
@@ -50,19 +53,23 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [mesqsim/evaluate.py](../mesqsim/evaluate.py) | baselines and the primary and secondary metrics |
 | [mesqsim/io.py](../mesqsim/io.py) | deterministic Parquet and JSON; the frames-table schema; session folders |
 | [mesqsim/runs.py](../mesqsim/runs.py) | run identity (commit, config hash, seed), run folders, listing and deleting |
-| [mesqsim/pipeline.py](../mesqsim/pipeline.py) | simulate a run, score a run, summaries |
-| [mesqsim/cli.py](../mesqsim/cli.py), [mesqsim/__main__.py](../mesqsim/__main__.py) | `python -m mesqsim simulate / baselines / params / list-runs / clean` |
+| [mesqsim/pipeline.py](../mesqsim/pipeline.py) | simulate a run, score a run (motion-phase errors, split and motion start attached), summaries |
+| [mesqsim/splits.py](../mesqsim/splits.py) | subject splits 70/15/15 by stable hash, TotalCapture holdout, manifest write and check |
+| [mesqsim/dataset.py](../mesqsim/dataset.py) | dataset generation: windows × motion starts × variants, session seeds, synthetic stand-in sources |
+| [mesqsim/results.py](../mesqsim/results.py) | results tables (overall, joint type, joint, sweeps) and the two results figures |
+| [mesqsim/cli.py](../mesqsim/cli.py), [mesqsim/__main__.py](../mesqsim/__main__.py) | `python -m mesqsim simulate / baselines / params / split / dataset / list-runs / clean` |
 | [configs/default.yaml](../configs/default.yaml), [configs/presets.yaml](../configs/presets.yaml) | every parameter with label and source; presets for the checks |
 | [mesqsim/validation.py](../mesqsim/validation.py) | registry of the brief §9 checks: what, why, expected, command, and the computation |
 | [scripts/check_env.py](../scripts/check_env.py) | prints versions, OS, CPU; checks imports and data checksums |
 | [scripts/download_diodem.py](../scripts/download_diodem.py) | downloads and MD5-verifies DIODEM, writes `manifests/diodem.csv` |
 | [scripts/verify_amass.py](../scripts/verify_amass.py) | records, extracts and indexes hand-downloaded AMASS archives and the SMPL+H model |
 | [scripts/make_figures.py](../scripts/make_figures.py) | regenerates `docs/figures/*.png` |
+| [scripts/make_results.py](../scripts/make_results.py) | one command: default dataset + sweeps → docs/RESULTS_STEP1.md and figures |
 | [scripts/diodem_inspect.py](../scripts/diodem_inspect.py) | reproduces the DIODEM frame, adjacency and gyroscope-offset facts in DATA.md |
 | [manifests/](../manifests/) | committed manifests: path, size, SHA-256 of every data file (data itself never committed) |
 | [scripts/validate.py](../scripts/validate.py) | runs every check and rewrites [VALIDATION.md](VALIDATION.md) |
 | [scripts/check_all.sh](../scripts/check_all.sh) | the full check: ruff, pytest, validation |
-| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_sim_full.py` (error-model units: Θ, η, loss, reboots, box registration, T-pose snapshot), `test_step0.py` (Step 0 on hand-built frames), `test_repo_hygiene.py` (rule 3), `test_validation.py` (every registered check, ids `check_<n>_<m>`); `conftest.py` skips data tests when data are absent |
+| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_sim_full.py` (error-model units: Θ, η, loss, reboots, box registration, T-pose snapshot), `test_step0.py` (Step 0 on hand-built frames), `test_splits.py` (9: splits, manifest, dataset), `test_repo_hygiene.py` (rule 3), `test_validation.py` (every registered check, ids `check_<n>_<m>`); `conftest.py` skips data tests when data are absent |
 | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | CI: ruff, the synthetic tests and quick validation on every push and pull request |
 
 ## Where to extend
