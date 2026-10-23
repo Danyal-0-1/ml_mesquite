@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install pinned packages (CPU torch)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Ruff
+        run: python -m ruff check .
+      - name: Synthetic test suite (AMASS and DIODEM tests skip without data)
+        run: python -m pytest -q
+      - name: Validation checks (no doc rewrite)
+        run: python scripts/validate.py --quick

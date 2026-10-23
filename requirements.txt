@@ -1,0 +1,21 @@
+# Direct dependencies, pinned exactly. Python 3.11.
+# Install:  python -m pip install -r requirements.txt
+# The extra index provides the CPU-only torch build ("2.14.1+cpu"); without it Linux pip would
+# fetch the multi-gigabyte CUDA build. Windows PyPI wheels are CPU-only either way.
+# requirements-lock.txt is the full `pip freeze` of the reference environment (Windows 11).
+--extra-index-url https://download.pytorch.org/whl/cpu
+numpy==2.4.6
+scipy==1.17.1
+pandas==3.1.0
+pyarrow==26.0.0
+matplotlib==3.11.2
+h5py==3.16.0
+PyYAML==6.0.3
+tqdm==4.70.1
+torch==2.14.1
+smplx==0.1.28
+vqf==2.1.2
+requests==2.34.2
+pytest==9.1.1
+hypothesis==6.170.8
+ruff==0.17.2

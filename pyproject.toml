@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mesqsim"
+version = "0.1.0"
+description = "Mesquite ML Step 1: suit simulator, Step 0 decoding shared with real recordings, baselines"
+requires-python = ">=3.11,<3.12"
+# Exact versions are pinned in requirements.txt (and requirements-lock.txt).
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["mesqsim*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["docs/brief"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = [
+    "amass: needs the licensed AMASS data and SMPL+H model (skips when absent)",
+    "diodem: needs the DIODEM download (skips when absent)",
+    "slow: Monte Carlo or end-to-end checks that take more than a few seconds",
+]
