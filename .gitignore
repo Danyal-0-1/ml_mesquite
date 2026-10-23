@@ -1,0 +1,43 @@
+# Licensed or generated data never enters git (see CLAUDE.md rule 3).
+data/
+outputs/
+*.npz
+!tests/fixtures/*.npz
+*.pkl
+*.parquet
+*.h5
+*.hdf5
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.bz2
+*.7z
+*.pt
+*.pth
+*.ckpt
+
+# Credentials
+.env
+*.netrc
+credentials*
+*secret*
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+build/
+dist/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

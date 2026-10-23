@@ -1,0 +1,5 @@
+# Store and check out text with LF endings on every OS (shell scripts must not get CRLF).
+* text=auto eol=lf
+*.png binary
+*.npz binary
+*.parquet binary
