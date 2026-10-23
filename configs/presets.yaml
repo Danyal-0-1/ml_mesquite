@@ -1,0 +1,14 @@
+# Named overrides of configs/default.yaml used by the checks (brief §9). Apply with --preset NAME.
+
+# Every error off, exact timing: B0 must be 0 up to quantisation and O2 exactly 0 (check 5).
+zero:
+  error_model.offset_mode: none
+  error_model.box_slot_deg: 0.0
+  timing.decode_delay_ms: [0.0, 0.0]
+  timing.pod_clock_ppm: 0.0
+  radio.latency_jitter_ms: 0.0
+
+# Only the initial offsets, arbitrary mode, zero box-slot error: B1 = O1 = 0 while B0 is not (check 5).
+offsets_only:
+  error_model.offset_mode: arbitrary
+  error_model.box_slot_deg: 0.0

@@ -449,3 +449,140 @@ def _diodem_drift(quick: bool) -> CheckResult:
         f"VQF − optical: end {end:+.1f}°, max |.| {np.max(np.abs(res['delta_deg'])):.1f}°, P95 first 5 s "
         f"{first:.2f}°; optical span {span:.1f}°", abs(end) > 2 * first and span < 180.0
     )
+
+
+# ---------------------------------------------------------------- 5, 7, 8: the simulator and Step 0
+
+def _simulate(preset: str | None, seed: int = 1, motion: str = "synthetic:walk:20", **overrides):
+    """Simulate one session in memory, decode it with Step 0, return (SessionData, data dict, series)."""
+    from . import step0
+    from .config import load_config
+    from .paths import REPO_ROOT
+    from .sim.motion import MotionSource
+    from .sim.simulate import simulate_session
+
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml")
+    if preset:
+        cfg = cfg.with_preset(preset)
+    if overrides:
+        cfg = cfg.with_overrides(overrides)
+    d = simulate_session(cfg, seed, MotionSource.from_spec(motion))
+    data = {"frames": d.frames, "session": d.session, "labels_ticks": d.labels_ticks,
+            "labels_joints": d.labels_joints, "meta": d.meta}  # fmt: skip
+    return d, data, step0.decode(d.frames, d.session)
+
+
+@register(
+    "5.1",
+    "Zero corruption: B0 = 0 up to quantisation, O2 = 0",
+    "Preset 'zero' (no offsets, exact timing): simulate a 20 s synthetic walk, decode, score B0 and O2.",
+    "With nothing to correct, any error left is a pipeline bug; only int16 quantisation may remain.",
+    "heading error 0 for both; B0 orientation error ≤ 0.01° (P99) and < 0.02° (max)",
+    "pytest tests/test_sim_slice.py -k zero_corruption",
+)
+def _zero(quick: bool) -> CheckResult:
+    from . import evaluate as ev
+
+    _, data, series = _simulate("zero")
+    e = ev.evaluate(data, series)
+    b0, o2 = e[e["baseline"] == "B0"], e[e["baseline"] == "O2"]
+    hmax = max(b0["err_heading_deg"].max(), o2["err_heading_deg"].max())
+    p99, mx = b0["err_orient_deg"].quantile(0.99), b0["err_orient_deg"].max()
+    return CheckResult(f"heading max {hmax:.1e}°; B0 orientation P99 {p99:.4f}°, max {mx:.4f}°",
+                       hmax == 0.0 and p99 <= 0.01 and mx < 0.02)  # fmt: skip
+
+
+@register(
+    "5.2",
+    "Offsets only: B0 equals the offset differences, O2 = 0",
+    "Preset 'offsets_only' (arbitrary offsets a_i, nothing else): B0's orientation error through the decoded "
+    "frames against |wrap(a_c − a_p)|; O2's heading error.",
+    "The M3 end-to-end slice: frames, Step 0 and the metric agree with the analytic answer.",
+    "|B0 − |a_c − a_p|| < 0.02° at every step; O2 heading error exactly 0",
+    "pytest tests/test_sim_slice.py -k 'offset_differences or o2_error'",
+)
+def _offsets(quick: bool) -> CheckResult:
+    from . import evaluate as ev
+    from .body import JOINTS
+
+    d, data, series = _simulate("offsets_only")
+    e = ev.evaluate(data, series)
+    offs = np.array([p["offset_rad"] for p in d.meta["plan"]["pods"]])
+    exp = np.rad2deg(np.abs(wrap_rad([offs[j.child] - offs[j.parent] for j in JOINTS])))
+    b0 = e[e["baseline"] == "B0"]
+    dev = float(np.max(np.abs(b0["err_orient_deg"].to_numpy() - exp[b0["joint"].to_numpy()])))
+    o2 = float(e.loc[e["baseline"] == "O2", "err_heading_deg"].max())
+    return CheckResult(f"max |B0 − offset difference| {dev:.4f}° (offset differences up to {exp.max():.1f}°); "
+                       f"O2 heading max {o2:.1e}°", dev < 0.02 and o2 == 0.0)  # fmt: skip
+
+
+@register(
+    "7.3",
+    "Step 0 unwraps ms_lo across ≥ 3 wraps",
+    "Simulate 200 s of standing (about 238 s of recording, over 3 wraps of 65.536 s); compare Step 0's unwrapped "
+    "ms_lo with the pod clock at each true decode time.",
+    "ms_lo wraps every 65.536 s; a wrong unwrap shifts every later sample time by a minute.",
+    "exact equality for every received frame",
+    "pytest tests/test_sim_slice.py -k three_wraps",
+)
+def _unwrap(quick: bool) -> CheckResult:
+    from .sim.timing import pod_ms
+
+    d, _, series = _simulate("offsets_only", motion="synthetic:stand:200")
+    m = series[series["received"]].merge(d.labels_ticks, on=["pod_id", "epoch", "tick"])
+    truth = np.empty(len(m))
+    for p in d.plan.pods:
+        sel = (m["pod_id"] == p.pod_id).to_numpy()
+        truth[sel] = np.floor(pod_ms(p, m.loc[sel, "t_decode_s"].to_numpy()))
+    wraps = m["ms_unwrapped"].max() / 65536
+    bad = int(np.sum(m["ms_unwrapped"].to_numpy() != truth))
+    return CheckResult(f"{len(m)} frames, up to {wraps:.2f} wraps, {bad} mismatches", bad == 0 and wraps > 3)
+
+
+@register(
+    "7.4",
+    "Step 0's fresh, held and lost flags equal the truth",
+    "Join Step 0's series with the simulator's per-tick labels on (pod, epoch, tick); compare every flag. "
+    "Default config (losses, stalls and reboots join in M4).",
+    "Step 0 is the shared decoder of real recordings; its bookkeeping must be exact where the truth is known.",
+    "same set of ticks; 0 flag mismatches",
+    "pytest tests/test_sim_slice.py -k flag",
+)
+def _flags(quick: bool) -> CheckResult:
+    d, _, series = _simulate(None)
+    m = series.merge(d.labels_ticks, on=["pod_id", "epoch", "tick"], how="outer", indicator=True,
+                     suffixes=("", "_true"))  # fmt: skip
+    unmatched = int((m["_merge"] != "both").sum())
+    both = m[m["_merge"] == "both"]
+    bad = int(np.sum((both["status"] == "fresh").to_numpy() != both["new_to_host"].to_numpy()))
+    bad += int(np.sum(both["received"].to_numpy() != both["received_true"].to_numpy()))
+    counts = series["status"].value_counts().to_dict()
+    return CheckResult(f"{len(both)} ticks {counts}; {unmatched} unmatched, {bad} mismatches",
+                       unmatched == 0 and bad == 0)  # fmt: skip
+
+
+@register(
+    "8.1",
+    "Same config and seed: identical bytes; another seed differs",
+    "Simulate a 5 s synthetic walk three times (seeds 7, 7, 8), write each session, hash every file.",
+    "A run must be reproducible from (commit, config hash, seed) alone.",
+    "seed 7 twice: identical SHA-256 for every file; seed 8: different frames",
+    "pytest tests/test_sim_slice.py -k same_seed",
+)
+def _repro(quick: bool) -> CheckResult:
+    import hashlib
+    import tempfile
+    from pathlib import Path
+
+    from . import io
+
+    hashes = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for k, seed in enumerate((7, 7, 8)):
+            d, _, _ = _simulate(None, seed=seed, motion="synthetic:walk:5")
+            folder = io.write_session(Path(tmp) / f"r{k}", d, {"seed": seed, **d.meta})
+            hashes.append({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(folder.iterdir())})
+    same = hashes[0] == hashes[1]
+    differ = hashes[0]["frames.parquet"] != hashes[2]["frames.parquet"]
+    return CheckResult(f"{len(hashes[0])} files; seed 7 twice identical: {same}; seed 8 differs: {differ}",
+                       same and differ)  # fmt: skip

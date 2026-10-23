@@ -1,0 +1,125 @@
+# Mesquite simulator: default parameters.
+# Every parameter: value, label (datasheet | firmware | assumption | measured), source; optional sweep.
+# Units are in the names. Ranges written [a, b] are uniform draws per pod unless the source says otherwise.
+# Every "assumption" will be replaced by Danyal's bench measurements (brief §4.3).
+
+motion:
+  spine_joint:
+    value: 9
+    label: assumption
+    source: "brief §5.1: the chest pod follows SMPL spine3 (9); spine2 (6) is the documented alternative; Danyal decides"
+
+session:
+  boot_spread_s:
+    value: 0.5
+    label: assumption
+    source: "brief §3.5: pods switched on together in the box; boot moments spread uniformly over this window"
+  box_s:
+    value: 5.0
+    label: assumption
+    source: "brief §3.5: 'a few seconds of frames' in the box, counted from the first power-on"
+  strapping_s:
+    value: 30.0
+    label: assumption
+    source: "time to take the pods out and strap them on; unmeasured"
+  strap_move_s:
+    value: [2.0, 6.0]
+    label: assumption
+    source: "each pod's own carry-and-strap movement lasts this long, inside the strapping phase"
+  strap_spins_max:
+    value: 1
+    label: assumption
+    source: "whole turns about the vertical while a pod is carried: integer in [-max, max]"
+  tpose_s:
+    value: 3.0
+    label: assumption
+    source: "brief §3.5: T-pose calibration snapshot; duration unmeasured"
+  idle_s:
+    value: 0.0
+    label: assumption
+    source: "brief §4.3: idle interval of 0-30 min between T-pose and motion makes drift visible; not recorded"
+    sweep: [0.0, 600.0, 1800.0]
+  tpose_posture_deg:
+    value: 5.0
+    label: assumption
+    source: "brief §4.3: T-pose posture error about 5 deg per segment (RMS rotation angle)"
+  facing_error_deg:
+    value: 15.0
+    label: assumption
+    source: "brief §4.3: motion starts facing the T-pose direction within +-15 deg (uniform)"
+  mounting_max_deg:
+    value: 20.0
+    label: assumption
+    source: "brief §4.3: pod mounting within +-20 deg per axis of its nominal placement (uniform)"
+
+timing:
+  chip_rate_hz:
+    value: [50.1, 60.0]
+    label: datasheet
+    source: "brief §3.3: 1.1 kHz / (1 + 19) nominal 55 Hz; clock tolerance gives 50.1-60.0 Hz per part"
+  chip_start_s:
+    value: [0.2, 0.5]
+    label: assumption
+    source: "delay from pod boot to the chip's first fused sample; unmeasured"
+  decode_delay_ms:
+    value: [0.0, 11.0]
+    label: assumption
+    source: "brief §3.3: ms_lo is the decode time, 0-11 ms after the sample (firmware polling)"
+  send_period_us:
+    value: 31250
+    label: firmware
+    source: "brief §3.3: fixed 32 Hz send grid on the pod clock"
+  send_phase_divisor:
+    value: 17
+    label: firmware
+    source: "brief §3.3: send phase after boot is id x 31250 / 17 us"
+  grid_start_ms:
+    value: 1000.0
+    label: assumption
+    source: "pod milliseconds from boot to the first send (firmware start-up); unmeasured"
+  pod_clock_ppm:
+    value: 50.0
+    label: assumption
+    source: "pod millisecond clock rate error, uniform within +-ppm (crystal); unmeasured"
+  host_epoch_s:
+    value: [100.0, 1000.0]
+    label: assumption
+    source: "arbitrary origin of the logger's host clock, so nothing can rely on host time = true time"
+
+radio:
+  latency_min_ms:
+    value: 2.0
+    label: assumption
+    source: "shortest send-to-host delay through radio, hub and USB; unmeasured"
+  latency_jitter_ms:
+    value: 3.0
+    label: assumption
+    source: "mean of the exponential extra delay on top of latency_min_ms; unmeasured"
+
+error_model:
+  offset_mode:
+    value: arbitrary
+    label: assumption
+    source: "brief §4.3: 'aligned' (north from the chip's own heading at start-up) or 'arbitrary' (uniform); 'none' only for checks"
+    sweep: [aligned, arbitrary]
+  box_slot_deg:
+    value: 2.0
+    label: assumption
+    source: "brief §4.3: heading error of each pod's slot in the box (normal, sigma)"
+    sweep: [0.5, 2.0, 5.0]
+
+battery:
+  start_pct:
+    value: [70.0, 100.0]
+    label: assumption
+    source: "charge at power-on; cosmetic"
+  drain_pct_per_h:
+    value: 10.0
+    label: assumption
+    source: "battery drain; cosmetic"
+
+eval:
+  grid_hz:
+    value: 32.0
+    label: firmware
+    source: "brief §4.7: errors are reported per 32 Hz step, the send rate"
