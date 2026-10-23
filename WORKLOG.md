@@ -223,3 +223,83 @@ downloaded:
 
 **Not done in M3, by design.** Drift, scale factor, random walk, tilt error, loss, stalls, reboots, box
 registration, B1, O1, sweeps and dataset generation are M4 and M5.
+
+---
+
+## 2026-10-23 · M4 · branch `m4-simulator` (stacked on `m3-slice`)
+
+**Previous entry's commits.** `a90ab07` (M3 code), `d4c330f` (M3 validation and work log), on `m3-slice`. Nothing
+pushed (repository still public).
+
+**Plan stated to the collaborator.**
+- The full heading model ψ = a + b·t + k·Θ + w with reboots, plus the fusion error η.
+- Optional sample-task stalls and Gilbert–Elliott burst loss.
+- Box registration and the T-pose snapshot in Step 0; baselines B1 and O1.
+- Every remaining §9 check.
+
+**Files added.** `tests/test_sim_full.py`.
+**Changed.** `mesqsim/sim/{heading,timing,radio,session,simulate,truth}.py`, `mesqsim/{step0,evaluate,validation,cli}.py`,
+`configs/{default,presets}.yaml`, `tests/test_validation.py` (readable ids `check_<n>_<m>`),
+`docs/{MATH,SIMULATOR,PIPELINE,CODE}.md`, `README.md`.
+
+**Commands and results.**
+- Trial runs (scratch script; synthetic walk 30 s, seed 3, 10-minute idle; mean heading error over the motion phase):
+
+  | setting | B0 | B1 | O1 | O2 |
+  |---|---|---|---|---|
+  | default | 99.7° | 7.3° | 6.6° | 0 |
+  | stress | 100.2° | 13.2° | 12.3° | 0 |
+  | aligned | 6.9° | 6.7° | 6.6° | 0 |
+
+  Step 0 flags matched the labels exactly in every case (752–1,919 lost ticks, 765 held frames under stress).
+- Seeds 3 and 4 drew no reboots under stress. Over 300 seeds the mean is 2.63 reboots per session against 2.74
+  expected (the spacing rule removes a few), so they were unlucky draws. Seed 5 (3 reboots) is used by check 7.4:
+  Step 0 found the same epochs, 0 flag mismatches. After a reboot, B1's error rises to 30° (stale box
+  registration) while O1 follows the new north.
+- Check 6.1 in quick mode first showed σ = 0.321° against 0.367°. Investigated with a 2,250-pod run
+  (σ = 0.361°): the first 300 pods (seeds 0–19) were a low block (0.321°), and the other blocks of 300 gave
+  0.355–0.393°. Quick mode now uses 600 pods; the full run uses 4,500 after one 2,250-pod draw put the pair
+  statistic at −4.0 % against the 5 % tolerance.
+- Check 6.3 showed Θ = 359.436° for a 360° turn: with no idle, the T-pose → motion pose change fell between two
+  240 Hz grid points and Θ at motion start was interpolated halfway through it. Phase boundaries are now exact grid
+  points: 360.000°, ψ change 5.4000°.
+- `bash scripts/check_all.sh` on commit `e644460` → ruff clean; pytest **114 passed, 8 skipped** (AMASS);
+  validation **30 passed, 0 failed, 4 skipped** (10.2–10.5 need AMASS). The full output is in the M4 pull-request
+  text. Highlights:
+  - 4.2: a common 73° turn of every north moves the labels by 1.5e-13° and B1 by 0.0038°;
+  - 4.3: one pod's 23° turn moves l_hip by +23.000000° and l_knee by −23.000000°, nothing else, and leaves the other
+    pods' frames identical;
+  - 5.3: B1 0.0034°, O1 0 (offsets only);
+  - 6.1: σ 0.3619° (expected 0.3674°), pair 0.5073° (0.5196°), 4,500 pods;
+  - 6.2: drift exact to 2.5e-14°;
+  - 6.3: 5.4000°;
+  - 7.1: discards 0.3620, 0.4188, 0.4673 (expected 0.3613, 0.4182, 0.4667);
+  - 7.2: held rate 0.02607 with stalls (expected 0.02613), 0 without;
+  - 7.4: 0 mismatches with 3 reboots under stress;
+  - 7.5: loss model matches at all three corners;
+  - 12.1: O2 0 ≤ O1 6.485° ≤ B1 6.898° ≪ B0 93.879°.
+
+**Decisions.**
+- Θ_i is integrated from the true trajectory, as the z component of Log(P_{k+1}·P_k⁻¹), on a 240 Hz grid with the
+  phase boundaries as exact points. The unrecorded idle is one step: its net twist about the vertical plus whole
+  turns ~ round(N(0, (0.5·√min)²)), an assumed turning model (brief §4.3: "an assumed amount of turning").
+- Reboots are a Poisson process per pod, at least silence + 2 s apart. A reboot restarts count, pod clock, drift
+  origin and Θ origin, and draws a new north. In the aligned mode the new north is the pod's own heading at its
+  chip's start-up. The random walk continues.
+- Stalls: at the end of a stall only the newest waiting sample is decoded, and the decode task then needs 1 ms
+  (`decode_busy_ms`, assumption). This guarantees distinct samples have distinct `ms_lo`, so "repeated `ms_lo`"
+  means held, as the brief states.
+- Stall starts are jittered ±0.5 s, so their phase on the 32 Hz grid varies (3 s is exactly 96 sends: without
+  jitter every stall would hit the same grid phase).
+- B1 = box registration only. The T-pose snapshot is implemented and tested (Δ_i equals the true world rotation to
+  0.02° with no errors), but it removes mountings, which the secondary metric already takes as known.
+- The fusion error η is Gauss–Markov per pod axis, σ 0.5° and τ 1 s (τ is an assumption).
+- Default drift σ_b 0.2 °/min, loss 2 % in bursts of 3, no stalls, no reboots: the middle of the brief's sweeps.
+  Stress settings are in the `stress` preset.
+- Datasheet source notes cite only what the brief states ("Tables 1 and 5"); I have not read the datasheet itself.
+
+**Not modelled** (in docs/SIMULATOR.md): the chip rate's ±1 % drift over temperature, per-axis scale factors,
+cross-axis sensitivity, and radio loss correlated across pods.
+
+**Open questions.** The same as M3 (offset mode; AMASS download), and every `assumption` row awaits Danyal's bench
+measurements: `python -m mesqsim params --label assumption` lists all 34.
