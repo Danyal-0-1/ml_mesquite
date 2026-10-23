@@ -149,3 +149,77 @@ MD5-checked against Dataverse. Names, sizes and SHA-256 are in `manifests/diodem
 on the AMASS download:** one AMASS sequence giving 15 orientations, the up-axis and left/right checks on real data,
 and an AMASS stick figure. The code and tests for them exist and skip cleanly. Only the synthetic stick figure is in
 `docs/figures/` so far.
+
+---
+
+## 2026-10-22 · M3 · branch `m3-slice` (stacked on `m2-data`)
+
+**Previous entry's commits.** `39b9cd7` (M2 code), `783d489` (M2 inspection script, validation, work log), on
+`m2-data`. Nothing pushed (repository still public).
+
+**Plan stated to the collaborator.** A thin end-to-end slice on one motion sequence, synthetic until AMASS is
+downloaded:
+
+1. Give every pod only a constant heading offset.
+2. Simulate chip samples and the 32 Hz send grid; write the frames table, labels and meta.
+3. Decode with Step 0.
+4. Score B0 and O2. Done when B0's error equals the offset differences up to quantisation and O2's error is 0.
+
+**Files added.**
+- `configs/{default,presets}.yaml`.
+- `mesqsim/{config,recording,step0,evaluate,io,runs,pipeline,cli,__main__}.py`.
+- `mesqsim/sim/{__init__,rng,motion,session,truth,heading,timing,radio,simulate}.py`.
+- `tests/{test_sim_slice,test_step0}.py`, `docs/{PIPELINE,SIMULATOR}.md`.
+
+**Changed.** `mesqsim/validation.py` (checks 5.1, 5.2, 7.3, 7.4, 8.1), `docs/{MATH,CODE}.md`, `README.md`.
+
+**Commands and results.**
+- First end-to-end run (scratch script; synthetic walk, 20 s, preset `offsets_only`, seed 1): 27,205 frames.
+  - Step 0 rebuilt (pod, epoch, tick) for every frame; fresh flags and ms_lo equal the labels.
+  - B0 orientation error minus |a_c − a_p| was at most 0.0081°.
+  - O2 heading error 0; O2 orientation error at most 0.0085°.
+- The one NaN was a grid step a few ms before a pod's first frame arrived. Fixed by starting the grid 0.25 s after
+  the last pod's first send.
+- `test_unrecorded_idle_gap_is_not_counted_as_loss` failed twice, and both failures were real:
+  1. a sample taken just before motion start, inside the idle interval, had no defined orientation (fixed: the
+     wearer holds the T-pose, then the first motion pose);
+  2. 5 ticks next to the 600 s idle gap were marked lost: Step 0 classified missing ticks by an arrival time
+     extrapolated over 600 s with up to ±50 ppm pod-clock error (fixed by the shared knowable-tick rule, below).
+- `python -m mesqsim simulate --seed 1 --preset offsets_only` then `python -m mesqsim baselines --run …` →
+  motion-phase summary: B0 heading and orientation mean 90.80°; O2 heading 0.0000°, orientation mean 0.0034°,
+  P95 0.0058°.
+- `bash scripts/check_all.sh` on commit `a90ab07` → ruff clean; pytest **95 passed, 8 skipped** (AMASS);
+  validation **20 passed, 0 failed, 4 skipped**. Of note:
+  - 5.1: B0 orientation P99 0.0082°, max 0.0098°;
+  - 5.2: max deviation 0.0081° with offset differences up to 179.5°;
+  - 7.3: 113,605 frames over 3.63 ms_lo wraps, 0 mismatches;
+  - 7.4: 27,205 ticks, 0 mismatches;
+  - 8.1: identical bytes for the same seed.
+
+**Decisions.**
+- Labels are two files, `labels_ticks.parquet` (per pod and send tick) and `labels_joints.parquet` (per joint
+  and 32 Hz step), instead of the brief's single `labels.parquet`, because the two have different rows.
+  `labels_ticks` also carries the true pod orientation at each sample time, which the secondary metric needs.
+- **Knowable ticks** (`mesqsim/recording.py`): a missing tick is lost only when received frames of the same
+  pod bracket it in one recorded interval and the later one is in its own boot epoch. Both the labels and Step 0
+  apply the same rule, which makes the flag comparison exact. Edge ticks are unknowable to any logger.
+- The idle interval is not recorded (`session.json` marks it `recorded: false`), so a 30-minute idle costs no
+  frames. Step 0 bridges it with host time: up to 4 + 200 ppm of the expected sends before declaring a reboot.
+- Secondary metric: each pod's latest valid frame by host time, compared with the truth at that frame's own sample
+  time, using the true mountings (brief §4.7). This isolates heading error from timing error.
+- One random stream per subsystem, seeded by (seed, name): adding a term later does not reshuffle the others.
+- Run folder `run_g<commit7>_c<config hash8>_s<seed>`. Untracked files also mark the commit dirty, because the
+  first trial run used new untracked modules but was named as clean HEAD; caught and fixed.
+- Default `error_model.offset_mode` is `arbitrary` (the larger problem); `aligned` is in the sweep. Which mode the
+  real chips follow is unmeasured.
+- T-pose posture error "5° per segment" is read as an RMS rotation angle of 5° (per-axis σ = 5°/√3).
+- Nominal pod placements (forehead, chest front, back of pelvis, outer upper arm, …) are an assumption, recorded
+  in `mesqsim/sim/motion.py`.
+
+**Open questions.**
+- Does the chip's north start at its own heading (`aligned`) or anywhere (`arbitrary`)? The 70-minute box
+  evening will tell (Danyal).
+- AMASS still not downloaded; the slice runs on synthetic motion.
+
+**Not done in M3, by design.** Drift, scale factor, random walk, tilt error, loss, stalls, reboots, box
+registration, B1, O1, sweeps and dataset generation are M4 and M5.
