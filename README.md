@@ -1,8 +1,5 @@
 # Mesquite ML, Step 1: data, environment, simulator
 
-**Private repository** for Danyal Khorami's Mesquite project. Do not share it or its results until Danyal says
-otherwise. The specification is [docs/brief/STEP1_BRIEF.md](docs/brief/STEP1_BRIEF.md); the rules for every work
-session are in [CLAUDE.md](CLAUDE.md).
 
 ## The whole project in one picture
 
