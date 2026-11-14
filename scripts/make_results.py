@@ -89,29 +89,33 @@ def main() -> int:
     for name, df in (("overall", overall), ("secondary", secondary), ("joint_type", by_type), ("joint", by_joint)):
         df.to_csv(out_res / f"table_{name}.csv", index=False, float_format="%.6g", lineterminator="\n")
     dataset = pd.read_csv(folder / "dataset.csv")
+    # On AMASS an error table holds about 10^8 rows (125.7 M for the default dataset, 27.5 M per sweep value).
+    # Keep only the summaries: holding every sweep's full table ran a 64 GB machine out of memory on 2026-11-14.
+    del errors
 
-    sweep_rows, sweep_runs = {}, []
+    sweep_parts, sweep_runs = [], []
     if not args.no_sweeps:
         base = cfg.with_overrides({"dataset.motion_start_min": [10], "dataset.windows_per_sequence": 1})
         for p in results.SWEEP_PARAMS:
             for v in cfg.param(p)["sweep"]:
                 print(f"sweep {p} = {v}")
                 f, e = scored_run(base.with_overrides({p: v}), args.seed, sources, args.fresh, print)
-                sweep_rows[(p, v)] = e
+                sweep_parts.append(results.sweep_table({(p, v): e}))
+                del e
                 sweep_runs.append(f.name)
-        sweeps = results.sweep_table(sweep_rows)
+        sweeps = pd.concat(sweep_parts, ignore_index=True)
         sweeps.to_csv(out_res / "table_sweeps.csv", index=False, float_format="%.6g", lineterminator="\n")
 
     figs = ROOT / "docs" / "figures"
     label = "SYNTHETIC motion (not AMASS)" if source == "synthetic" else "AMASS motion"
     results.fig_growth(overall, f"Relative-heading error vs time since boot: {label}, default parameters",
                        figs / "results_growth.png")  # fmt: skip
-    if sweep_rows:
+    if sweep_parts:
         results.fig_sweeps(sweeps, f"One-at-a-time sweeps, motion at 10 min since boot: {label}",
                            figs / "results_sweeps.png")  # fmt: skip
 
     write_markdown(source, cfg, commit, args, folder, dataset, overall, secondary, by_type,
-                   sweeps if sweep_rows else None, sweep_runs)  # fmt: skip
+                   sweeps if sweep_parts else None, sweep_runs)  # fmt: skip
     print("wrote docs/RESULTS_STEP1.md")
     return 0
 
