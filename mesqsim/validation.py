@@ -933,11 +933,12 @@ def _splits_manifest(quick: bool) -> CheckResult:
     path, frozen = manifest_dir() / "split_manifest.csv", manifest_dir() / "split_manifest.sha256"
     if not path.is_file():
         return CheckResult("no split manifest yet (needs AMASS: python -m mesqsim split --write)", None)
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, dtype={"subject": str})  # CMU's "01" must not become 1
     problems = check_manifest(df)
     digest = manifest_sha256(path)
     want = frozen.read_text().split()[0] if frozen.is_file() else None
-    counts = df.groupby("split")["subject"].nunique().to_dict()
+    # A subject is (subset, subject id): CMU and KIT reuse ids 10, 11, 12 and 63 for different people.
+    counts = df.drop_duplicates(["subset", "subject"]).groupby("split").size().to_dict()
     return CheckResult(f"{len(df)} sequences, subjects per split {counts}; problems {problems or 'none'}; "
                        f"SHA-256 {digest[:12]}… frozen {want[:12] + '…' if want else 'not yet'}",
                        not problems and (want is None or want == digest))  # fmt: skip
