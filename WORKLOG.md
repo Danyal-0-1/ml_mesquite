@@ -303,3 +303,64 @@ cross-axis sensitivity, and radio loss correlated across pods.
 
 **Open questions.** The same as M3 (offset mode; AMASS download), and every `assumption` row awaits Danyal's bench
 measurements: `python -m mesqsim params --label assumption` lists all 34.
+
+## 2026-10-23 · M5 · branch `m5-results` (stacked on `m4-simulator`); entry written on 2026-11-13 in S2-M0
+
+*The M5 session ended without a work-log entry. This entry was written afterwards from the M5 commits, their
+messages and diffs, and a fresh run of the full check on the same code. Numbers quoted from a commit message are
+marked as such; they were not re-run.*
+
+**Previous entry's commits.** `e4b4667`, `67c5ac4`, `e644460` (M4 code), `3a88b80` (M4 validation and work log),
+`f826716` (work-log fix), on `m4-simulator`.
+
+**M5 commits.** `5f494f4` (speed-up), `a53c510` (M5), `441be49` (label epochs), on `m5-results`. GitHub's
+`m5-results` holds `a53c510`; `441be49` was local only. The regenerated `docs/RESULTS_STEP1.md` and its two
+figures were left staged but uncommitted; they are committed with this entry.
+
+**Files added.** `mesqsim/{splits,dataset,results}.py`, `scripts/make_results.py`, `tests/test_splits.py`,
+`docs/RESULTS_STEP1.md`, `docs/figures/{results_growth,results_sweeps,sim_random_walk}.png`.
+**Changed.** `mesqsim/{cli,figures,paths,pipeline,step0,validation}.py`, `mesqsim/sim/{motion,simulate}.py`,
+`configs/default.yaml` (`dataset:` section), `scripts/{make_figures,validate}.py`, `tests/test_sim_full.py`,
+`docs/{CODE,DATA,MATH,PIPELINE,SIMULATOR}.md`, `README.md`.
+
+**What was built.**
+- Splits ([mesqsim/splits.py](mesqsim/splits.py)): subjects → 70/15/15 % per subset by a stable SHA-256 order and
+  largest remainder; TotalCapture to `holdout`; `python -m mesqsim split --write` writes the manifest and its
+  SHA-256 and refuses to replace a frozen one without `--force`. Checks 9.1–9.3.
+- Dataset generation ([mesqsim/dataset.py](mesqsim/dataset.py), `python -m mesqsim dataset`): windows of 20 s
+  (at most 3 per sequence) × motion start 1, 10, 30 min since boot × variants, stable per-session seeds, every
+  session in its sequence's split. Synthetic stand-in sources until AMASS.
+- Results ([mesqsim/results.py](mesqsim/results.py), [scripts/make_results.py](scripts/make_results.py)): the
+  default dataset plus one-at-a-time sweeps with common random numbers → Tables 1–4 and two figures in
+  `docs/RESULTS_STEP1.md`, labelled provisional while the motion is synthetic.
+- Speed-up (`5f494f4`, from its message): Step 0's unwrapping and lost-tick insertion are vectorised per boot epoch
+  (0.55 s → 0.07 s per session); η is generated on each epoch's chip grid with one linear filter. One session
+  (30-minute idle, 20 s motion) takes 0.54 s to simulate, decode and score, down from about 1.5 s.
+- Label epochs (`441be49`, from its message): a pod that rebooted twice inside the unrecorded idle showed Step 0 one
+  count jump, while the labels counted two, so the reboot sweep crashed. Labels' `epoch` is now the observed boot
+  epoch and `boot_epoch` the true index. Regression test
+  `test_two_reboots_in_the_unrecorded_idle_look_like_one`; 30 stress sessions with 834 reboots gave 0 unmatched
+  ticks and 0 flag mismatches.
+
+**Commands and results.**
+- `python scripts/make_results.py` (`--source synthetic --seed 1`) at `441be49`, 2026-10-23 07:52 UTC (the run line
+  of `docs/RESULTS_STEP1.md`; not re-run in this session): 72 sessions from 12 synthetic sequences; primary error at
+  10 min since boot, mean / P95: B0 91.96° / 173.58°, B1 6.70° / 17.16°, O1 6.25° / 16.07°, O2 0 / 0. Provisional.
+- `bash scripts/check_all.sh` on 2026-11-14 01:52 UTC (2026-11-13 18:52 local), commit `af0b0cd` + the staged
+  results files (code identical to `441be49`), 5 min 19 s:
+  - ruff: all checks passed;
+  - pytest: **125 passed, 9 skipped** (185 s; the 9 skips need AMASS);
+  - validation: **32 passed, 0 failed, 5 skipped, of 37 checks** (9.2 and 10.2–10.5 need AMASS). The committed
+    `docs/VALIDATION.md` still showed the M4 run (30 of 34), so M5 had not re-run the full check after adding 9.1–9.3.
+  - Changes against M4: 4.2 B1 max change 0.0039° (was 0.0038°) and 12.1 B1 6.900° (was 6.898°), from the new η
+    generation in `5f494f4`.
+
+**Decisions** (read from the M5 code and docs).
+- The split order is SHA-256 of `mesquite-step1-splits-v1:<subset>:<subject>`, so shuffling the file list or adding
+  a subset moves no existing subject (tested).
+- Sweeps vary one parameter at a time at 10 min since boot, with the same session seeds for every value.
+- `dataset.window_s` 20 s, `windows_per_sequence` 3 and `motion_start_min` [1, 10, 30] are `assumption`
+  (experiment design).
+
+**Open questions** (at the end of M5). AMASS and SMPL+H not downloaded, so no split manifest and provisional results;
+M6 not started; no `main` on GitHub and no pull request.
