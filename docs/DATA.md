@@ -1,8 +1,9 @@
 # Data
 
 *Status: S2-M0 (2026-11-13). AMASS downloaded (HumanEva, BMLmovi, CMU, KIT; SMPL+H G), verified and split; the
-split waits for Danyal to freeze it. SMPL+H body model **not downloaded yet** (needs a registration on the MANO
-site). DIODEM downloaded and verified.*
+split waits for Danyal to freeze it. SMPL+H body model (extended, 16 shape parameters) downloaded and verified on
+2026-11-14. DIODEM downloaded and verified. `python scripts/check_env.py --require amass_archives amass_files smplh
+diodem` passes.*
 
 ## Picture first
 
@@ -72,6 +73,12 @@ download server reported before downloading and match the files; SHA-256 in `man
 
 Sources: `python scripts/verify_amass.py` (files, frame rates, 0 load failures), `python -m mesqsim split`
 (subjects), and a scratch count of `trans` frames / `mocap_framerate` per file (lengths).
+
+**SMPL+H body model, downloaded on 2026-11-14** (the collaborator's own MANO account): the "Extended SMPL+H model",
+`smplh.tar.xz`, 113,231,292 bytes (the size the server reported), SHA-256
+`46d5b8687be48c91181fa88271feff3a5e83aa62a481fad8a0bcb9254b2a74f1`, kept in `$MESQ_DATA_DIR/body_models/archives/`.
+It holds `female/`, `male/` and `neutral/model.npz` (87,259,106 bytes each; SHA-256 in `manifests/smplh.csv`), a
+licence and an `info.txt`: gender-specific models with 16 shape parameters, made for AMASS.
 
 **Only 767 of the 8,143 sequences are at least 20 s long**, the default `dataset.window_s` (an `assumption`). With it,
 BMLmovi contributes 2 windows and KIT 397, against CMU's 756: the simulated sessions are mostly CMU and KIT, and the

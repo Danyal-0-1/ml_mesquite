@@ -90,7 +90,6 @@ Only names, sizes and SHA-256 checksums (`manifests/`) are committed. Data live 
 - **The window length:** with `dataset.window_s` = 20 s only 767 of 8,143 sequences are long enough, and BMLmovi
   gives just 2 windows ([DATA.md](DATA.md) §1.2). Shorter windows or concatenation would change which motions are
   simulated.
-- **SMPL+H body model:** not downloaded (needs a registration at mano.is.tue.mpg.de). Only figures need it.
 - **The analysis plan:** [analysis_plan_DRAFT.md](analysis_plan_DRAFT.md) waits for Danyal to freeze it.
 - **The Spine joint:** SMPL spine3 (default) or spine2.
 - **The offset mode:** whether the chip's north is `aligned` or `arbitrary` at boot is unmeasured; both are swept.
