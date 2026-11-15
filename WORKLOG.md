@@ -520,3 +520,23 @@ estimator (GEO-K, then axis identification and GEO-ID); S2-M3 the 2-DoF constrai
 DIODEM; S2-M6 `make_results_step2.py` and `docs/RESULTS_STEP2.md`; S2-M7 the explanation pipeline; S2-M8 the
 documentation, report and tag `step2`. The window-length decision should come before S2-M6's results are read; the
 AMASS-based fits (Ω, κ scale, q, hold threshold) use the frozen split.
+
+## 2026-11-15: S2-M0 pushed
+
+**What happened.** The collaborator approved pushing the code without the data ("push the code without uploading the
+data"). Before pushing I checked the history of `s2-m0`: no data file (only the `manifests/*.csv` of names, sizes and
+SHA-256s), no blob over 5 MB (largest: `manifests/amass_files.csv`, 942,523 bytes), and no password or cookie.
+`git log -p s2-m0 | grep` hits only the commit author line. `data/` and `outputs/` are git-ignored, and the data live
+in `D:\mesquite_work`, outside the repository.
+
+- **Danyal's commit on GitHub.** GitHub's `m5-results` had Danyal's 4ffa9bc (2026-11-12, README: remove the private
+  notice), which was not in `s2-m0`. Our README already removes the notice, so I merged it with `git merge -s ours`
+  (the files are unchanged against 746733c; `git diff --stat` is empty). `s2-m0` now contains everything on GitHub.
+- **Pushed.** `main` (13ea832, the first commit) as GitHub's `main`, and `s2-m0`. `gh` is not installed, so the
+  collaborator opens the pull request `s2-m0` → `main` by hand. The merge and the tag `step1` wait for Danyal's
+  approval, and making `main` GitHub's default branch is Danyal's setting.
+- **No Step 2 estimator code in this push.** S2-M0 only closes Step 1. The question in CLAUDE.md rule 2 (public, or
+  kept local?) will be asked before the first push of S2-M1.
+- **The check.** The last full check ran at c83d768: ruff clean, pytest 134 passed, validation 37 passed, 0 failed,
+  0 skipped. Every later commit changes only README.md, WORKLOG.md and the header line of docs/VALIDATION.md
+  (`git diff --stat c83d768 HEAD`).

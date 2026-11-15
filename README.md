@@ -57,13 +57,13 @@ tables and figures for the four baselines.
 
 | milestone | content | state |
 |---|---|---|
-| M1 | skeleton, environment, conventions, wire codec, CI | done on branch `m1-skeleton` (not pushed: repository is public) |
+| M1 | skeleton, environment, conventions, wire codec, CI | done on branch `m1-skeleton`; on GitHub through `s2-m0` |
 | M2 | data: AMASS/SMPL+H instructions, DIODEM download, manifests, loaders, mapping | done on branch `m2-data` except the AMASS-dependent checks, which wait for the AMASS download |
 | M3 | thin end-to-end slice (offsets only → frames → Step 0 → B0, O2) | done on branch `m3-slice` (synthetic motion; AMASS when downloaded) |
 | M4 | full simulator, configs, CLI | done on branch `m4-simulator` |
 | M5 | splits, dataset, baselines, first results | done on branch `m5-results`; work log written in S2-M0 |
 | M6 | complete documentation, report, tag `step1` | done in S2-M0 (branch `s2-m0`); tag `step1` after Danyal's approval |
-| S2-M0 | close Step 1: M5 work log, M6, AMASS download and split, results on AMASS | done on branch `s2-m0` (local); waits for the push approval and Danyal's freeze of the split and analysis plan |
+| S2-M0 | close Step 1: M5 work log, M6, AMASS download and split, results on AMASS | done; branch `s2-m0` pushed 2026-11-15, pull request into `main` waits for Danyal's approval; the split and analysis plan wait for his freeze |
 | S2-M1…M8 | the geometric estimator, its evaluation, the explanation pipeline | not started ([Step 2 brief](docs/brief/STEP2_BRIEF.md) §7) |
 
 ## Quickstart: from a fresh clone to the Step 1 results
