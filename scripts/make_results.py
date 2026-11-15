@@ -261,6 +261,8 @@ def write_markdown(source, cfg, commit, run_commit, args, folder, dataset, overa
         sw["cell"] = [f"{a:.2f} / {b:.2f}" for a, b in zip(sw["mean"], sw["p95"], strict=True)]
         wide = sw.pivot_table(index=["parameter", "value"], columns="baseline", values="cell", aggfunc="first",
                               sort=False).reset_index()  # fmt: skip
+        # swept values as written in the config: with the table's ".2f", a loss of 0.005 printed as "0.01"
+        wide["value"] = [v if isinstance(v, str) else f"{v:g}" for v in wide["value"]]
         lines += [
             "## Table 4: one-at-a-time sweeps (mean / P95 of the primary metric, degrees)",
             "",
