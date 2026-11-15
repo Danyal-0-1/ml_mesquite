@@ -63,7 +63,7 @@ tables and figures for the four baselines.
 | M4 | full simulator, configs, CLI | done on branch `m4-simulator` |
 | M5 | splits, dataset, baselines, first results | done on branch `m5-results`; work log written in S2-M0 |
 | M6 | complete documentation, report, tag `step1` | done in S2-M0 (branch `s2-m0`); tag `step1` after Danyal's approval |
-| S2-M0 | close Step 1: M5 work log, M6, AMASS download and split | in progress on branch `s2-m0` |
+| S2-M0 | close Step 1: M5 work log, M6, AMASS download and split, results on AMASS | done on branch `s2-m0` (local); waits for the push approval and Danyal's freeze of the split and analysis plan |
 | S2-M1…M8 | the geometric estimator, its evaluation, the explanation pipeline | not started ([Step 2 brief](docs/brief/STEP2_BRIEF.md) §7) |
 
 ## Quickstart: from a fresh clone to the Step 1 results
