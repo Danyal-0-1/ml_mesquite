@@ -364,3 +364,159 @@ figures were left staged but uncommitted; they are committed with this entry.
 
 **Open questions** (at the end of M5). AMASS and SMPL+H not downloaded, so no split manifest and provisional results;
 M6 not started; no `main` on GitHub and no pull request.
+
+---
+
+## 2026-11-13 to 2026-11-15 · S2-M0 (close Step 1) · branch `s2-m0` (from `m5-results`)
+
+**Previous entry's commits.** The M5 entry above was written in this milestone, in `e56954d`.
+**This milestone's commits** (local only; nothing pushed): `af0b0cd` (Step 2 brief, CLAUDE.md), `e56954d` (M5 entry,
+regenerated synthetic results), `7fb2ae2` (AMASS manifests, split, check 9.2 count), `b44a8af` (MUST_KNOW, analysis
+plan, README), `2432062` (make_results memory), `5b1b83e` (SMPL+H manifest, check_env), `fcb637c` (make_results counts,
+unit, `--runs-commit`), `1b400e3` (sweep values), `c83d768` (RESULTS_STEP1 on AMASS), and the commit of this entry.
+
+**Plan stated to the collaborator.** Save the Step 2 brief and update CLAUDE.md; write the missing M5 entry; download
+and verify AMASS and SMPL+H with the collaborator's own accounts; run the AMASS checks, write the split, regenerate
+the Step 1 results on AMASS; write MUST_KNOW, the analysis-plan draft, the README quickstart and the Step 1 report;
+ask before creating `main` on GitHub and tagging `step1`.
+
+**Data downloaded** (by the session, with the collaborator's own AMASS and MANO accounts, which the collaborator gave
+for this purpose; the password was never written to any file, and the collaborator was asked to change it).
+
+| file | bytes | SHA-256 |
+|---|---|---|
+| `amass/archives/HumanEva.tar.bz2` (SMPL+H G) | 33,071,034 | `9e1d6fb2bda95360d0b3f8175bbfe7ca69620db6ba637505e903c4e44667121a` |
+| `amass/archives/BMLmovi.tar.bz2` | 748,793,904 | `15a771effd6694383aa8f26b03d37a5b9a8a9ee0bbab702172db8cc5b3b98cf4` |
+| `amass/archives/CMU.tar.bz2` | 1,993,171,135 | `c360b8296a1a11bbd35d709815e1fd704162259c50ab3198c381a9e8c499003a` |
+| `amass/archives/KIT.tar.bz2` | 2,196,810,275 | `2f259ea449392d4e3f7003a0912f80daef1d9f63bcf43878fbc89d9f852c091d` |
+| `body_models/archives/smplh.tar.xz` (extended SMPL+H) | 113,231,292 | `46d5b8687be48c91181fa88271feff3a5e83aa62a481fad8a0bcb9254b2a74f1` |
+
+- Sizes were read from the server (`Content-Range`) before downloading, and the files match them. Not downloaded:
+  TotalCapture (83,967,231 bytes), SFU (62,318,066 bytes).
+- The MPI download server needs a session cookie, and curl's resume (`-C`) combined with the login POST fails with
+  curl error 2. A byte-range request, appended only when the server answers 206 with a `Content-Range` starting at the
+  current size, worked. BMLmovi arrived in two pieces (601,750,994 + 147,042,910 bytes) after a connection reset; the
+  full bzip2 decompression during extraction passed.
+
+**Files added.** `docs/brief/STEP2_BRIEF.md`, `docs/MUST_KNOW.md`, `docs/analysis_plan_DRAFT.md`,
+`manifests/{amass_archives,amass_files,smplh,split_manifest}.csv`, `manifests/split_manifest.sha256`.
+**Changed.** `CLAUDE.md`, `README.md`, `WORKLOG.md`, `docs/{DATA,RESULTS_STEP1,VALIDATION}.md`,
+`docs/figures/results_{growth,sweeps}.png`, `mesqsim/validation.py`, `scripts/{check_env,make_results}.py`.
+
+**Commands and results.**
+- `python scripts/verify_amass.py`: 4 archives, 4.97 GB; 8,143 motion files, 11.71 GB (BMLmovi 1,801, CMU 2,082,
+  HumanEva 28, KIT 4,232); frame rates 60 Hz (495, all CMU), 100 Hz (4,232, KIT), 120 Hz (3,416); **0 load
+  failures**. With `--no-extract` after the SMPL+H download: 3 body-model files, 0.26 GB; the AMASS manifests came out
+  byte-identical.
+- `python -m mesqsim split --write`: 246 subjects, train / val / test 173 / 37 / 36 (BMLmovi 60/13/13, CMU 72/15/15,
+  HumanEva 2/1/0, KIT 39/8/8); sequences 5,974 / 1,104 / 1,065; SHA-256
+  `d36448adb76762251668b9940933e8a14df664ad6d3277fe3a930f7d55049fb3` (also `sha256sum`).
+- Scratch count (`count_windows.py`, not committed: `trans` frames / `mocap_framerate` per file): 23.2 h of motion;
+  **767 of 8,143 sequences are at least 20 s long**; 20 s windows (at most 3 per sequence) train / val / test
+  884 / 110 / 173; BMLmovi 2, KIT 397, CMU 756, HumanEva 12; median lengths BMLmovi 4.6 s, KIT 6.1 s, CMU 9.6 s,
+  HumanEva 17.5 s.
+- `python scripts/check_env.py --require amass_archives amass_files smplh diodem`: PASS (4, 8,143, 3 and 267 files ok).
+- `bash scripts/check_all.sh`:
+  - before AMASS (`af0b0cd`, 2026-11-13): ruff clean; pytest 125 passed, 9 skipped; validation 32 passed, 0 failed,
+    5 skipped of 37;
+  - **final (`c83d768`, 2026-11-15 08:12 UTC, 3 min 1 s): ruff clean; pytest 134 passed; validation 37 passed,
+    0 failed, 0 skipped of 37.** The AMASS checks: 9.2 hash unchanged, no subject in two splits; 10.2 (473, 15, 4)
+    unit orientations; 10.3 +Z up, mean cosine 0.962; 10.4 thighs alternate, correlation −0.94; 10.5 knee flexion
+    within [−8.9°, 156.1°].
+- `python scripts/make_results.py --seed 1` on AMASS:
+  - at `b44a8af`: the default dataset (3,501 sessions) took 4.3 h; after 15 of 22 sweep values the process ran out of
+    memory (`ArrowMemoryError: malloc of size 894169408 failed`) after 1,036 min, about 10 h of which the machine was
+    asleep. Cause: every sweep's full error table (27.5 M rows each; 125.7 M for the default) was kept until the end.
+  - at `2432062` (the fix): completed in 725 min, again with idle gaps.
+  - `--runs-commit 2432062` at `fcb637c` and `1b400e3`: the report rebuilt from those runs in 7 min 46 s. Table 1 is
+    identical to the default tables the `b44a8af` run had written.
+
+**Decisions.**
+- Subsets: the DATA.md proposal (CMU, KIT, BMLmovi) plus HumanEva as the small walking subset.
+- The split was written only after all four subsets were in (adding a subset changes the hash). Writing it makes the
+  tool treat it as frozen; **Danyal's approval is still pending.**
+- A subject is (subset, subject id): CMU and KIT reuse the ids 10, 11, 12 and 63 for different people. Check 9.2's
+  displayed count used the id alone (172 train subjects instead of 173) and is fixed; its leakage test
+  (`splits.check_manifest`) already grouped by (subset, subject). The analysis plan states the rule for Step 2.
+- `check_env.py` skips manifests without a `sha256` column (it reported the split manifest's 8,143 rows as missing).
+- `make_results.py`: summarises each sweep as soon as it is scored; counts sequences as (subset, subject, file) and
+  subjects as (subset, id) (it had counted 721 sequences by file name, which KIT reuses); on AMASS names the subject as
+  the unit; an AMASS banner counts the assumptions from the config; swept values print as configured (0.005 had shown
+  as 0.01); `--runs-commit C` reuses runs only when `mesqsim/` and `configs/` are unchanged since C, and never
+  simulates under C's name (tested: it refuses `441be49`).
+- `git_commit()` is read again for every sweep, so during the long run the session's own edits were stashed to keep
+  the run folders labelled with a clean commit.
+- **No data on GitHub.** The collaborator asked whether data should be separated, chunked and pushed. Original data
+  stay in `D:\mesquite_work\data`, generated runs in `D:\mesquite_work\outputs` (about 100 GB per full results run),
+  both outside the repository. They are not pushed: the AMASS and SMPL+H licences forbid redistribution, the
+  AMASS-derived sessions fall under them, the repository is public, and both briefs forbid data in git. The manifests
+  and the (commit, config, seed) run identity make everything reproducible for anyone who registers.
+- The analysis-plan draft marks every choice not in a brief as a proposal.
+
+**Open questions.** In the report below (items 5 and 6).
+
+### Step 1 report (Step 1 brief §11)
+
+**1. What was built** (89 files in git; data and outputs outside it).
+- `mesqsim/`: `body`, `cli`, `codec`, `config`, `conventions`, `correction`, `dataset`, `evaluate`, `figures`, `io`,
+  `manifest`, `paths`, `pipeline`, `plotstyle`, `recording`, `results`, `runs`, `splits`, `step0`, `synth`,
+  `validation`; `data/{amass,diodem,net}`; `sim/{heading,motion,radio,rng,session,simulate,timing,truth}`.
+- `scripts/`: `check_all.sh`, `check_env.py`, `diodem_inspect.py`, `download_diodem.py`, `make_figures.py`,
+  `make_results.py`, `validate.py`, `verify_amass.py`.
+- `tests/`: `test_{amass,codec,conventions,correction,diodem,repo_hygiene,sim_full,sim_slice,splits,step0,validation}`
+  and `conftest.py`.
+- `configs/{default,presets}.yaml`; `manifests/{amass_archives,amass_files,diodem,smplh,split_manifest}.csv`,
+  `split_manifest.sha256`; `.github/workflows/ci.yml`.
+- `docs/`: `CODE`, `DATA`, `MATH`, `MUST_KNOW`, `PIPELINE`, `RESULTS_STEP1`, `SIMULATOR`, `VALIDATION`,
+  `analysis_plan_DRAFT`; `brief/STEP{1,2}_BRIEF`; five figures. Root: `README.md`, `CLAUDE.md`, `WORKLOG.md`,
+  `pyproject.toml`, `requirements.txt`, `requirements-lock.txt`.
+
+**2. `bash scripts/check_all.sh`** at `c83d768`: `ruff: All checks passed!`; `pytest: 134 passed in 78.43s`;
+`VALIDATION: PASS` (37 passed, 0 failed, 0 skipped of 37); `== ALL CHECKS PASSED`.
+
+**3. The results table** ([docs/RESULTS_STEP1.md](docs/RESULTS_STEP1.md), Table 1). AMASS, default parameters
+(offsets arbitrary, box slot 2°, drift σ 0.2 °/min, scale factor ±1.5 %, no reboots, loss 2 % in bursts of 3,
+20 s windows), seed 1, config `b083b87e8724`; 3,501 sessions from 767 sequences of 81 subjects; 748,047 steps per
+row. Primary error |wrap(δ̂ − δ)|, mean / P95 in degrees:
+
+| baseline | 1 min since boot | 10 min | 30 min |
+|---|---|---|---|
+| B0 | 89.83 / 170.94 | 90.21 / 171.06 | 90.74 / 171.70 |
+| B1 | 4.03 / 10.16 | 6.99 / 18.30 | 12.06 / 31.49 |
+| O1 | 3.26 / 8.46 | 6.55 / 17.63 | 11.81 / 30.86 |
+| O2 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+With one reboot per pod per hour, B1's mean at 10 min is 29.33° (P95 146.72°) against O1's 6.06° (Table 4).
+
+**4. Every assumption still in the config** (38 of 44; `python -m mesqsim params --label assumption`):
+`motion.spine_joint`; `session.{boot_spread_s, box_s, strapping_s, strap_move_s, strap_spins_max, tpose_s, idle_s,
+tpose_posture_deg, facing_error_deg, mounting_max_deg}`; `timing.{chip_start_s, decode_delay_ms, grid_start_ms,
+stall_ms, stall_period_s, stall_jitter_s, decode_busy_ms, pod_clock_ppm, host_epoch_s}`; `radio.{loss_mean,
+burst_mean_frames, latency_min_ms, latency_jitter_ms}`; `error_model.{offset_mode, box_slot_deg,
+drift_sigma_deg_per_min, tilt_sigma_deg, tilt_tau_s, reboot_rate_per_h, reboot_silence_s,
+idle_turns_sigma_per_sqrt_min}`; `battery.{start_pct, drain_pct_per_h}`; `dataset.{window_s, windows_per_sequence,
+motion_start_min, variants}`. The other six: 3 datasheet, 3 firmware, 0 measured.
+
+**5. What is blocked, and on whom.**
+- Pushing `s2-m0`, creating `main` on GitHub and the tag `step1`: **the collaborator's approval** (asked). GitHub's
+  default branch is `m5-results`; making `main` the default is Danyal's (owner) setting.
+- The split freeze and the analysis-plan freeze: **Danyal**.
+- Replacing assumptions with measurements: **Danyal's bench** (the 70-minute box evening, the taped-board session).
+
+**6. What Danyal must decide.**
+- Freeze the split (`d36448ad…`) and the analysis plan ([docs/analysis_plan_DRAFT.md](docs/analysis_plan_DRAFT.md),
+  §12 checklist).
+- **The window length:** at 20 s only 81 of 246 subjects and 767 of 8,143 sequences take part, the test set has 15
+  subjects, and BMLmovi's everyday actions are almost absent; this bears on H2. Proposal: 8 s windows, or one
+  subject's sequences concatenated.
+- The AMASS subsets, and whether to add TotalCapture as a holdout.
+- The Spine joint: SMPL spine3 (default) or spine2.
+- Before the first push of Step 2 estimator code: public, or kept local.
+
+**7. Plan for Step 2** (specified in [docs/brief/STEP2_BRIEF.md](docs/brief/STEP2_BRIEF.md) §7; not started).
+S2-M1 the estimator contract, the common clock, pairing and rotation rates, the `geometry:` config; S2-M2 the hinge
+estimator (GEO-K, then axis identification and GEO-ID); S2-M3 the 2-DoF constraint and the range-of-motion cost with
+Ω fitted on train; S2-M4 windows, the von Mises filter, reboot resets, the hold rule and κ recalibration; S2-M5
+DIODEM; S2-M6 `make_results_step2.py` and `docs/RESULTS_STEP2.md`; S2-M7 the explanation pipeline; S2-M8 the
+documentation, report and tag `step2`. The window-length decision should come before S2-M6's results are read; the
+AMASS-based fits (Ω, κ scale, q, hold threshold) use the frozen split.
