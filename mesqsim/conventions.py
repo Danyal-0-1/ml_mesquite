@@ -50,6 +50,17 @@ __all__ = [
     "circ_mean_rad",
     "circ_std_rad",
     "quat_mean",
+    "matrix_to_cardan_rad",
+    "quat_to_cardan_rad",
+    "KAPPA_MAX",
+    "vm_mean_resultant",
+    "vm_one_minus_resultant",
+    "vm_kappa_from_resultant",
+    "vm_kappa_from_one_minus_resultant",
+    "vm_product",
+    "vm_predict_kappa",
+    "vm_halfwidth_rad",
+    "vm_logpdf",
 ]
 
 QUAT_ORDER = ("x", "y", "z", "w")
@@ -290,3 +301,168 @@ def quat_mean(q, axis: int = 0) -> np.ndarray:
     ref = q[0]
     sign = np.where(np.sum(q * ref, axis=-1, keepdims=True) < 0.0, -1.0, 1.0)
     return quat_canonical(quat_normalize(np.mean(q * sign, axis=0)))
+
+
+# ---------------------------------------------------------------------------------------------- Cardan angles
+
+_AXIS = {"X": 0, "Y": 1, "Z": 2}
+
+
+def matrix_to_cardan_rad(r, seq: str) -> np.ndarray:
+    """Intrinsic Cardan (Tait-Bryan) angles ``(..., 3)`` of rotation matrices ``r`` (..., 3, 3).
+
+    ``seq`` names three distinct body axes, e.g. ``"XZY"``: ``R = R_X(a) · R_Z(b) · R_Y(c)``, each rotation about
+    the axis as already rotated by the previous ones (intrinsic; scipy's upper-case convention). The first and
+    third angles are in (-pi, pi], the middle one in [-pi/2, pi/2]; the decomposition is singular (gimbal lock)
+    when the middle angle is ±90°. With axis indices (i, j, k) and parity e = +1 for a cyclic order of X, Y, Z
+    (else -1): ``b = asin(e·R[i,k])``, ``a = atan2(-e·R[j,k], R[k,k])``, ``c = atan2(-e·R[i,j], R[i,i])``.
+    """
+    seq = seq.upper()
+    if len(seq) != 3 or len(set(seq)) != 3 or not set(seq) <= set("XYZ"):
+        raise ValueError(f"seq must name three distinct axes of XYZ, got {seq!r}")
+    i, j, k = (_AXIS[c] for c in seq)
+    e = 1.0 if (j - i) % 3 == 1 else -1.0
+    r = np.asarray(r, dtype=np.float64)
+    b = np.arcsin(np.clip(e * r[..., i, k], -1.0, 1.0))
+    a = np.arctan2(-e * r[..., j, k], r[..., k, k])
+    c = np.arctan2(-e * r[..., i, j], r[..., i, i])
+    return np.stack([a, b, c], axis=-1)
+
+
+def quat_to_cardan_rad(q, seq: str) -> np.ndarray:
+    """Intrinsic Cardan angles ``(..., 3)`` of unit quaternions; see :func:`matrix_to_cardan_rad`."""
+    return matrix_to_cardan_rad(quat_to_matrix(q), seq)
+
+
+# ---------------------------------------------------------------------------------------------- von Mises
+#
+# The von Mises distribution VM(mu, kappa) on the circle has density exp(kappa·cos(x - mu)) / (2 pi I0(kappa)).
+# kappa = 0 is the uniform distribution ("no information"); for large kappa it is close to a normal distribution
+# with variance 1/kappa. Its mean resultant length is A(kappa) = I1(kappa)/I0(kappa) (Mardia & Jupp 2000, §3.5).
+
+KAPPA_MAX = 1e12
+"""Largest concentration any estimator reports (a numerical cap; 1e12 is a spread of 1e-6 rad)."""
+
+_KAPPA_ASYMPTOTIC = 1e3  # above this, 1 - A(kappa) uses its asymptotic series (no cancellation)
+
+
+def vm_one_minus_resultant(kappa) -> np.ndarray:
+    """``1 - A(kappa)``, computed without cancellation for large kappa (1 at kappa = 0)."""
+    from scipy.special import i0e, i1e
+
+    k = np.asarray(kappa, dtype=np.float64)
+    small = k < _KAPPA_ASYMPTOTIC
+    ks = np.where(small, k, 1.0)
+    kl = np.where(small, _KAPPA_ASYMPTOTIC, k)
+    exact = 1.0 - i1e(ks) / i0e(ks)  # i1e/i0e = I1/I0 without overflow
+    # Abramowitz & Stegun 9.7.1: A(k) = 1 - 1/(2k) - 1/(8k^2) - 1/(8k^3) - 25/(128k^4) - ...
+    asym = 1.0 / (2 * kl) + 1.0 / (8 * kl**2) + 1.0 / (8 * kl**3) + 25.0 / (128 * kl**4)
+    return np.where(small, exact, asym)
+
+
+def vm_mean_resultant(kappa) -> np.ndarray:
+    """``A(kappa) = I1(kappa) / I0(kappa)``: 0 at kappa = 0, tending to 1 as kappa grows."""
+    return 1.0 - vm_one_minus_resultant(kappa)
+
+
+def _vm_dA(k: np.ndarray, one_minus_a: np.ndarray) -> np.ndarray:
+    """dA/dkappa = 1 - A/kappa - A^2 (1/2 at kappa = 0); asymptotic form for large kappa."""
+    a = 1.0 - one_minus_a
+    with np.errstate(divide="ignore", invalid="ignore"):
+        exact = np.where(k > 1e-8, 1.0 - a / np.where(k > 1e-8, k, 1.0) - a * a, 0.5)
+    kl = np.maximum(k, _KAPPA_ASYMPTOTIC)
+    asym = 1.0 / (2 * kl**2) + 1.0 / (4 * kl**3) + 3.0 / (8 * kl**4)
+    return np.where(k < _KAPPA_ASYMPTOTIC, exact, asym)
+
+
+def vm_kappa_from_one_minus_resultant(eps) -> np.ndarray:
+    """``A^-1(1 - eps)``: the concentration whose mean resultant length is ``1 - eps`` (eps in (0, 1]).
+
+    Initial guess from Best & Fisher's approximation (Mardia & Jupp 2000, eq. 5.3.7), then Newton steps on
+    ``1 - A(kappa) = eps``. ``eps = 1`` gives 0; ``eps <= 0`` gives :data:`KAPPA_MAX`.
+    """
+    eps = np.asarray(eps, dtype=np.float64)
+    e = np.clip(eps, 1e-300, 1.0)
+    r = 1.0 - e
+    with np.errstate(divide="ignore", invalid="ignore"):
+        k = np.where(
+            r < 0.53,
+            2 * r + r**3 + 5 * r**5 / 6,
+            np.where(r < 0.85, -0.4 + 1.39 * r + 0.43 / e, (1.0 + np.sqrt(1.0 + 2.0 * e)) / (4.0 * e)),
+        )
+    k = np.clip(np.nan_to_num(k, nan=0.0, posinf=KAPPA_MAX), 0.0, KAPPA_MAX)
+    for _ in range(6):  # Newton on g(k) = (1 - A(k)) - eps, g'(k) = -A'(k):  k <- k + g / A'(k)
+        oma = vm_one_minus_resultant(k)
+        k = np.clip(k + (oma - e) / np.maximum(_vm_dA(k, oma), 1e-300), 0.0, KAPPA_MAX)
+    k = np.where(eps >= 1.0, 0.0, k)
+    return np.where(eps <= 0.0, KAPPA_MAX, k)
+
+
+def vm_kappa_from_resultant(r) -> np.ndarray:
+    """``A^-1(r)``: the concentration whose mean resultant length is ``r`` in [0, 1)."""
+    return vm_kappa_from_one_minus_resultant(1.0 - np.asarray(r, dtype=np.float64))
+
+
+def vm_product(mu1_rad, kappa1, mu2_rad, kappa2) -> tuple[np.ndarray, np.ndarray]:
+    """Product of two von Mises densities, which is von Mises again (up to normalisation):
+
+        kappa1·e^{i mu1} + kappa2·e^{i mu2} = kappa·e^{i mu}
+
+    Returns ``(mu, kappa)`` with mu wrapped into (-pi, pi]. A factor with kappa = 0 changes nothing.
+    """
+    z = np.asarray(kappa1) * np.exp(1j * np.asarray(mu1_rad)) + np.asarray(kappa2) * np.exp(1j * np.asarray(mu2_rad))
+    return wrap_rad(np.angle(z)), np.minimum(np.abs(z), KAPPA_MAX)
+
+
+def vm_predict_kappa(kappa, q_rad2_per_s, dt_s) -> np.ndarray:
+    """Prediction of a von Mises belief over ``dt_s`` under heading diffusion ``q`` (rad²/s):
+
+        A(kappa') = A(kappa) · exp(-q·dt/2)
+
+    (the wrapped-normal rule: the mean resultant length of a diffusion over dt is exp(-q·dt/2)). For large
+    kappa this tends to ``kappa' = 1 / (1/kappa + q·dt)``: the variances add. ``dt <= 0`` returns kappa unchanged.
+    """
+    k = np.asarray(kappa, dtype=np.float64)
+    x = 0.5 * np.asarray(q_rad2_per_s, dtype=np.float64) * np.maximum(np.asarray(dt_s, dtype=np.float64), 0.0)
+    eps = vm_one_minus_resultant(k)
+    eps_new = eps * np.exp(-x) - np.expm1(-x)  # 1 - (1 - eps)·exp(-x), accurate when both are tiny
+    out = vm_kappa_from_one_minus_resultant(eps_new)
+    return np.where(x > 0, np.minimum(out, k), k)
+
+
+_HW_TABLE: dict[float, tuple[np.ndarray, np.ndarray]] = {}
+
+
+def _halfwidth_table(level: float) -> tuple[np.ndarray, np.ndarray]:
+    if level not in _HW_TABLE:
+        from scipy import stats
+
+        log_k = np.linspace(-4.0, 7.0, 1101)
+        kap = 10.0**log_k
+        hw = np.array([stats.vonmises.ppf(0.5 + level / 2.0, kk) for kk in kap])
+        _HW_TABLE[level] = (log_k, hw)
+    return _HW_TABLE[level]
+
+
+def vm_halfwidth_rad(kappa, level: float) -> np.ndarray:
+    """Half-width ``h`` of the central von Mises interval: P(|x - mu| <= h) = ``level`` (e.g. 0.68, 0.95).
+
+    Uniform (``h = pi·level``) at kappa = 0. Computed from a table of scipy's von Mises quantiles over
+    kappa in [1e-4, 1e7] (interpolated in log kappa); above 1e7 the normal limit ``z/sqrt(kappa)``.
+    """
+    from scipy.stats import norm
+
+    k = np.asarray(kappa, dtype=np.float64)
+    log_k, hw = _halfwidth_table(float(level))
+    lk = np.log10(np.clip(k, 10.0 ** log_k[0], 10.0 ** log_k[-1]))
+    out = np.interp(lk, log_k, hw)
+    out = np.where(k > 10.0 ** log_k[-1], norm.ppf(0.5 + level / 2.0) / np.sqrt(np.maximum(k, 1e-300)), out)
+    return np.where(k < 10.0 ** log_k[0], np.pi * level, out)
+
+
+def vm_logpdf(x_rad, kappa) -> np.ndarray:
+    """Log density of the angle ``x`` under VM(0, kappa): ``kappa·(cos x - 1) - log(2 pi · i0e(kappa))``."""
+    from scipy.special import i0e
+
+    k = np.asarray(kappa, dtype=np.float64)
+    return k * (np.cos(np.asarray(x_rad, dtype=np.float64)) - 1.0) - np.log(2.0 * np.pi * i0e(k))

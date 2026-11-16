@@ -540,3 +540,108 @@ in `D:\mesquite_work`, outside the repository.
 - **The check.** The last full check ran at c83d768: ruff clean, pytest 134 passed, validation 37 passed, 0 failed,
   0 skipped. Every later commit changes only README.md, WORKLOG.md and the header line of docs/VALIDATION.md
   (`git diff --stat c83d768 HEAD`).
+
+## 2026-11-16 · Step 2 starts on Danyal's Mac: environment, data, `main` and `step1`
+
+**Previous entry's commits.** `b143815` (the "S2-M0 pushed" entry), merged by Danyal into `m5-results` through pull
+request #1 as `9b06673` (2026-11-16).
+
+**Machine.** macOS (Darwin 25.6.0), Apple M2 Pro (10 cores), 16 GB RAM. Python 3.11.16 in `.venv`, made with
+`uv venv --python 3.11` and filled with `uv pip install --index-strategy unsafe-best-match -r requirements.txt`
+(under uv's default first-index strategy the CPU-torch extra index would shadow PyPI for every package);
+`python scripts/check_env.py --fast`: every pin installed, PASS. Data and outputs live next to the repository, outside
+git: `../mesquite_work/data` and `../mesquite_work/outputs` (`MESQ_DATA_DIR`, `MESQ_OUTPUT_DIR`), like the
+collaborator's `D:\mesquite_work`. The Desktop is not synced to iCloud (`defaults read com.apple.finder
+FXICloudDriveDesktop` = 0).
+
+**Decisions asked and answered (Danyal, who ran this session).**
+- Step 2 brief rule 3, asked once: *"Should the Step 2 estimator code be pushed to the public repository, or kept
+  local?"* → **push to the public repository.**
+- `main` and tags: "push and merge all the code on the main branch, and separate Step 1 and Step 2 with tags".
+  GitHub's `main` still held only `13ea832` (pull request #1 had been merged into `m5-results`). `main` was
+  fast-forwarded to `9b06673` (no force) and the annotated tag **`step1`** pushed there. Each Step 2 milestone: a
+  branch from `main`, the full check, a pull request, the merge into `main` (approved in advance by Danyal), and a
+  tag `s2-m<n>`; `step2` at the end.
+- AMASS on this Mac: Danyal gave his own AMASS / MANO account for the download. The password went only into the
+  download requests and was never written to any file; it is in the session transcript, so **Danyal should change
+  it**.
+
+**Data downloaded** (sizes read from the server's `Content-Range` before downloading; every SHA-256 equal to the
+committed manifests).
+
+| file | bytes | SHA-256 |
+|---|---|---|
+| `amass/archives/HumanEva.tar.bz2` | 33,071,034 | `9e1d6fb2bda95360d0b3f8175bbfe7ca69620db6ba637505e903c4e44667121a` |
+| `amass/archives/BMLmovi.tar.bz2` | 748,793,904 | `15a771effd6694383aa8f26b03d37a5b9a8a9ee0bbab702172db8cc5b3b98cf4` |
+| `amass/archives/CMU.tar.bz2` | 1,993,171,135 | `c360b8296a1a11bbd35d709815e1fd704162259c50ab3198c381a9e8c499003a` |
+| `amass/archives/KIT.tar.bz2` | 2,196,810,275 | `2f259ea449392d4e3f7003a0912f80daef1d9f63bcf43878fbc89d9f852c091d` |
+| `body_models/archives/smplh.tar.xz` | 113,231,292 | `46d5b8687be48c91181fa88271feff3a5e83aa62a481fad8a0bcb9254b2a74f1` |
+
+- AMASS from the MPI download server (domain `amass`, `amass_per_dataset/smplh/gender_specific/mosh_results/
+  <Subset>.tar.bz2`); SMPL+H from domain `mano`, `smplh.tar.xz`, extracted to `body_models/smplh/`. KIT stopped at
+  1,152,385,024 bytes when a Claude session ended and was resumed with an HTTP range request (appended only on a `206`
+  whose `Content-Range` started at the partial size).
+- DIODEM: `python scripts/download_diodem.py`, 267 files, each MD5-checked; `manifests/diodem.csv` unchanged.
+- Requests to outside servers used a generic User-Agent (`Mozilla/5.0 (compatible; data-download)`) instead of the
+  repository's `mesqsim-download/0.1 (Mesquite ML research; ...)`, so no project name was sent. **Open question:**
+  make the repository's default generic too.
+- `python scripts/verify_amass.py` (in a clean worktree), 4 min 52 s: 8,143 motion files, 11.71 GB (BMLmovi 1,801,
+  CMU 2,082, HumanEva 28, KIT 4,232); frame rates 60 Hz 495, 100 Hz 4,232, 120 Hz 3,416; **0 load failures**; SMPL+H 3
+  files, 0.26 GB. `manifests/amass_archives.csv`, `amass_files.csv` and `smplh.csv` came out **byte-identical** to the
+  collaborator's (`git status` clean afterwards).
+
+**Baseline before any Step 2 code** (main at `9b06673`, AMASS not yet extracted): `ruff` clean; `pytest` 126 passed,
+8 skipped (AMASS) in 25 s; `python scripts/validate.py --quick` PASS. DIODEM check 11.3 gives the collaborator's
+numbers on this machine (end −80.3°, max 91.4°).
+
+---
+
+## 2026-11-16 · S2-M1 (estimator contract, common clock, scorer) · branch `s2-m1` (from `main` = `9b06673`)
+
+**Plan stated.** The estimator contract and its registration with the scorer; one clock for parent and child (a
+causal lower-envelope pod-to-host map), pairs and rotation rates; the `geometry:` config section; the causality,
+label-deletion and rate-invariance tests; the timing check.
+
+**Files added.** `mesqsim/estimators/{__init__,contract,clock,vmfilter,geo}.py`, `mesqsim/geo_score.py`,
+`tests/test_{conventions_step2,clock,geo_contract}.py`.
+**Changed.** `mesqsim/{conventions,config,evaluate,pipeline,cli,validation}.py`, `configs/default.yaml`,
+`docs/{CODE,PIPELINE,MATH,VALIDATION}.md`, `README.md`, `CLAUDE.md`.
+
+**What was built.**
+- `contract`: `Estimate(delta_rad, kappa, uncertain)`; `GeoTruth`, the one argument through which GEO-K receives
+  simulator truth (the true mountings; the scorer builds it from `meta.json`).
+- Estimators receive `cfg.section("geometry")` only: reading `error_model.*` from inside raises `KeyError` (tested).
+- `clock`: fresh valid samples; per pod and boot epoch the lower envelope t_host ≈ α + β·t_pod (minimum per 2 s block,
+  a line through the minima); pairs by slerp within 0.1 s; body rates (a constant heading offset cancels, tested).
+- `vmfilter`: init, predict (A(κ′) = A(κ)·e^{−qΔt/2}), product update, reset; the state after every event is
+  recorded, so outputs at query times are causal by construction.
+- `geo`: events — box-registration start at the box end with κ₀ = 1/(2σ_box²), a reset when a pod's new boot epoch
+  appears, a window every 1 s over the last 8 s (none inside unrecorded phases). No joint solvers yet, so GEO-K and
+  GEO-ID equal B1 with a decaying κ (smoke test: identical to B1 over the motion; κ from 410 to about 330).
+- `evaluate`: methods B0, B1, O1, O2, GEO-K, GEO-ID, GEO-ID-nofilter, GEO-ID-hinge, GEO-ID-w4, GEO-ID-w16;
+  `USES_TRUTH` = {O1, O2, GEO-K}; `errors.parquet` gains `kappa` (float32, NaN for the baselines) and `uncertain`
+  (nullable boolean). `python -m mesqsim baselines --run DIR --methods ...`.
+- `conventions`: Cardan angles (pinned against scipy); von Mises A(κ), A⁻¹, product, prediction, interval
+  half-widths, log density.
+- `config`: the label `fitted`; the `geometry:` section (11 parameters, all `assumption` with sources); the drift
+  stress value 2.0 °/min in the sweep (Step 2 brief §4.1).
+
+**Commands and results.**
+- The first run of check 31.1 failed: max 41.25 ms. Three seconds after a 10-minute idle the clock slope had been
+  fitted through two block minima, +14,888 ppm for one pod. Fix: a slope only through at least 5 block minima
+  (10 s), clipped to ±200 ppm (Step 0's clock tolerance). Then max 12.73 ms.
+- `bash scripts/check_all.sh` in a clean worktree at `a3167cc`, 2026-11-16 23:13 UTC, 1 min 19 s: `ruff` clean;
+  `pytest` **171 passed**; validation **41 passed, 0 failed, 0 skipped of 41**. Step 2 checks: 21.1 11,052 query
+  steps compared over 5 cuts × 2 estimators, 0 differ; 21.2 identical bytes; 21.3 identical bytes without labels;
+  31.1 default 268,654 pairs, P50 2.91 ms, P95 7.80 ms, max 12.73 ms (bound 15 ms); stress P95 7.96 ms, max 19.10
+  ms (reported). Step 1's 12.1 gives the collaborator's numbers exactly (O1 6.485°, B1 6.900°, B0 93.879°).
+
+**Decisions.**
+- Timing bound 15 ms = the 11 ms decode-delay spread + 4 ms for the clock fit; stalls exceed it by design.
+- Each window enters the filter with weight `step_s/window_s` (consecutive windows share 7/8 of their samples).
+- The errors column `baseline` keeps its name and now holds any method's name.
+- Check numbering: Step 2 brief §8 item n is validation check 20 + n.
+- Checks run in a separate git worktree at the milestone commit, so `VALIDATION.md` is stamped with a clean commit
+  while work continues in the main tree.
+
+**Open questions.** The repository's download User-Agent (above).

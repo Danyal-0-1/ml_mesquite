@@ -1,6 +1,6 @@
 # Pipeline
 
-*Status: M5. Every stage, from one session to a dataset of sessions and the results tables.*
+*Status: S2-M1. Every stage, from one session to a dataset of sessions and the results tables; Step 2's estimator stage (§7) is being built.*
 
 ## Picture first
 
@@ -23,7 +23,7 @@ frames.parquet + session.json ─► STEP 0 ─► series.parquet ─► baselin
 | stage | command | output |
 |---|---|---|
 | simulate one session | `python -m mesqsim simulate --seed 1 [--motion synthetic:walk:20 \| path/to/seq_poses.npz] [--preset NAME] [--set key=value]` | `$MESQ_OUTPUT_DIR/run_g<commit>_c<config hash>_s<seed>/sessions/s000/` |
-| decode and score | `python -m mesqsim baselines --run <run folder>` | `series.parquet` per session; `results/errors.parquet`, `summary.csv`, `summary.md` |
+| decode and score | `python -m mesqsim baselines --run <run folder> [--methods B0 B1 GEO-K GEO-ID ... \| all]` | `series.parquet` per session; `results/errors.parquet`, `summary.csv`, `summary.md` |
 | split AMASS subjects | `python -m mesqsim split --write` | `manifests/split_manifest.csv` and `.sha256` |
 | simulate and score a dataset | `python -m mesqsim dataset --seed 1 --source amass\|synthetic` | run folder with `sessions/`, `dataset.csv`, `results/` |
 | results tables and figures | `python scripts/make_results.py` | `docs/RESULTS_STEP1.md`, `docs/figures/results_*.png` |
@@ -142,3 +142,31 @@ Code: `mesqsim/step0.py`. Rules: [MATH.md §5](MATH.md).
     (motion phase).
 
 Code: `mesqsim/evaluate.py`, `mesqsim/pipeline.py`.
+
+### 7. Step 2 estimators (GEO-K, GEO-ID) → `kappa`, `uncertain` in `results/errors.parquet`
+
+- **In:** Step 0's `series.parquet` and `session.json` only, plus the `geometry:` section of the config (the
+  estimator's own beliefs). GEO-K also receives the true mountings from `meta.json` through its one `truth`
+  argument (simulation only). The scorer passes the host times of its 32 Hz steps (grid time + host epoch) as the
+  query times.
+- **Out:** for every query time and joint, δ̂ in radians in (−π, π], a concentration κ ≥ 0 (0 = no information)
+  and an `uncertain` flag (κ below `geometry.kappa_hold`; the estimate still holds). `errors.parquet` gains the
+  columns:
+
+| column | meaning |
+|---|---|
+| `kappa` | float32; the method's von Mises concentration at that step; NaN for methods without a confidence (B0, B1, O1, O2) |
+| `uncertain` | nullable boolean; κ < `geometry.kappa_hold`; null for methods without a confidence |
+
+- **What runs** ([mesqsim/estimators/geo.py](../mesqsim/estimators/geo.py)):
+  1. fresh, valid samples per pod; for each pod and boot epoch a causal clock map t_host ≈ α + β·t_pod (lower
+     envelope; [MATH.md §9](MATH.md));
+  2. events in host time: the box-registration start at the end of the box phase; a reset of a joint whenever
+     one of its pods starts a new boot epoch; a window every `geometry.step_s` (from the T-pose on, never inside
+     an unrecorded phase) solving each joint over the last `geometry.window_s` of parent/child pairs;
+  3. the per-joint von Mises filter, read out at the query times.
+- **Methods** (`evaluate.METHODS`): B0, B1, O1, O2; GEO-K (uses simulator truth), GEO-ID, and the ablations
+  GEO-ID-nofilter, GEO-ID-hinge, GEO-ID-w4, GEO-ID-w16.
+- **Checks:** 21.1 causality, 21.2 determinism, 21.3 label blindness, 31.1 pair timing
+  ([VALIDATION.md](VALIDATION.md)).
+

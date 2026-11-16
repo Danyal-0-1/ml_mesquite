@@ -1,6 +1,6 @@
 # The mathematics
 
-*Status: M4. Complete for the simulator, Step 0 and the Step 1 baselines.*
+*Status: S2-M1. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections (§9 on) grow with each milestone.*
 
 ## 1. Picture first
 
@@ -210,3 +210,60 @@ agree up to the slot errors.
 | 10.x AMASS mapping | the wrong joint, axis, side or up direction feeds every simulated session |
 | 11.x DIODEM | the reality-check data are not what the loader assumes |
 | 12.1 baseline order | an oracle or a baseline is computed against the wrong labels |
+
+## 9. Step 2: one clock for parent and child (owned by [mesqsim/estimators/clock.py](../mesqsim/estimators/clock.py))
+
+The geometry compares a parent and a child pod **at the same instant**, but each pod stamps samples with its own
+clock: `t_pod_s` is Step 0's unwrapped `ms_lo`, the **decode** time on the pod clock (0–11 ms after the sample).
+The host stamps **arrival**.
+
+- **Pod time → host time,** per pod and boot epoch: t_host ≈ α + β·t_pod. Arrival = decode + a positive delay
+  (waiting for the next send, radio, hub), so the map follows the **lower envelope** of r = t_host − t_pod: the
+  minimum of r in each block of `geometry.clock_block_s` (2 s) of pod time, then a least-squares line through the
+  block minima. The slope is fitted only through at least 5 block minima (10 s) and is clipped to ±200 ppm (Step
+  0's clock tolerance); otherwise β = 1. *Why:* three seconds after a 10-minute idle gap two block minima gave a
+  slope of +1.5 % and paired samples 41 ms apart (check 31.1 failed); with β = 1 a ±50 ppm clock costs at most
+  0.5 ms over 10 s. The fit uses only frames of the pod's current epoch that arrived by the analysis time and
+  within the last `geometry.clock_window_s` (30 s): causal. A latency common to both pods cancels in the pair.
+- **Fresh samples only:** `status == fresh` and `valid`. A held frame repeats a sample and carries nothing new.
+- **Pairs:** at each fresh parent sample τ_p, the child is slerped between its bracketing fresh samples τ_c,j ≤ τ_p
+  ≤ τ_c,j+1 if they are at most `geometry.max_pair_gap_s` (0.1 s) apart; otherwise there is no pair.
+- **Rates** between consecutive fresh samples of one pod, in its own (body) frame, at the midpoint:
+  ω = Log(q(t₋)⁻¹·q(t)) / (t − t₋). With q = Y(−ψ)·P and constant ψ, q(t₋)⁻¹·q(t) = P(t₋)⁻¹·Y(ψ)·Y(−ψ)·P(t) =
+  P(t₋)⁻¹·P(t): the private north cancels (`test_rates_ignore_a_constant_heading_offset`).
+- **Timing check (31.1, scorer side):** for every pair, the child's true time at the slerp point minus the parent's
+  true sample time. Bound: 15 ms = the 0–11 ms decode-delay spread (the two pods' delays are independent) + 4 ms
+  for the clock fit. Under the default config the latest run gave P50 2.9 ms, P95 7.8 ms, max 12.7 ms
+  ([VALIDATION.md](VALIDATION.md)). Sample-task stalls (stress preset) decode a sample up to one chip period late:
+  max 19.1 ms there, reported but not tested.
+
+## 10. Step 2: the von Mises toolkit (owned by [mesqsim/conventions.py](../mesqsim/conventions.py))
+
+A belief about an angle is a von Mises density VM(μ, κ) ∝ exp(κ·cos(x − μ)) (Mardia & Jupp 2000). κ = 0 is
+uniform ("no information"); for large κ it is nearly normal with variance 1/κ.
+
+| quantity | formula | function | test |
+|---|---|---|---|
+| mean resultant length | A(κ) = I₁(κ)/I₀(κ) (scaled Bessel functions; asymptotic series 1 − 1/(2κ) − 1/(8κ²) − … above κ = 1000) | `vm_mean_resultant`, `vm_one_minus_resultant` | `test_mean_resultant_is_bessel_ratio_and_inverse_roundtrips` |
+| inverse | κ = A⁻¹(r): Best–Fisher start, Newton steps | `vm_kappa_from_resultant` | same |
+| product of two beliefs | κ·e^{iμ} = κ₁e^{iμ₁} + κ₂e^{iμ₂} | `vm_product` | `test_product_of_two_von_mises_is_their_resultant` |
+| prediction over Δt | A(κ′) = A(κ)·exp(−q·Δt/2); for large κ, κ′ = 1/(1/κ + q·Δt) | `vm_predict_kappa` | `test_predict_rule_and_large_kappa_limit` |
+| central interval | half-width h with P(|x − μ| ≤ h) = level; π·level at κ = 0 | `vm_halfwidth_rad` | `test_interval_halfwidth_matches_scipy_and_probability` |
+| log density | κ(cos x − 1) − log(2π·i0e(κ)) | `vm_logpdf` | `test_logpdf_is_normalised` |
+
+Cardan angles (`matrix_to_cardan_rad`, intrinsic sequences such as `"XZY"`, pinned against scipy) are added here
+for the range-of-motion solver.
+
+## 11. Step 2: the estimator's events (owned by [mesqsim/estimators/geo.py](../mesqsim/estimators/geo.py))
+
+- **Init** at the end of the box phase: μ = B1's estimate wrap(h_p − h_c), κ₀ = 1/σ_pair² with
+  σ_pair = √2·`geometry.box_sigma_deg` (the estimator's belief, not the simulator's slot error). A pod without box
+  frames, or already in a later boot epoch, gives its joints κ₀ = 0. Before the box ends, the answer is a running
+  box registration (frames so far) with κ = 0.
+- **Reset:** when Step 0 shows a pod's first frame of a new boot epoch, its joints drop to κ = 0.
+- **Window** every `geometry.step_s` from the T-pose on (pods strapped on), never inside an unrecorded phase: each
+  joint is solved over the pairs of the last `geometry.window_s` of its pods' current boot epochs. The result
+  enters the filter with weight `step_s/window_s`, because consecutive windows share 7/8 of their samples
+  (each sample then counts about once).
+- **Output** at a query time: the latest event's belief predicted forward; `uncertain` = κ < `geometry.kappa_hold`.
+
