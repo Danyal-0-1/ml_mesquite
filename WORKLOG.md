@@ -645,3 +645,89 @@ label-deletion and rate-invariance tests; the timing check.
   while work continues in the main tree.
 
 **Open questions.** The repository's download User-Agent (above).
+
+---
+
+## 2026-11-16 · S2-M2 and S2-M3 (hinge; 2-DoF; range of motion) · branch `s2-m2` (from `main` = `3e6e59d`)
+
+**Previous entry's commits.** `a3167cc`, `63adaba` (S2-M1), merged into `main` by pull request #2 as `3e6e59d`; tag
+`step2-m1` (first named `s2-m1`, which collided with the branch name, so milestone tags are `step2-m<n>`).
+
+**Plan stated.** S2-M2: the hinge estimator, GEO-K, then axis identification and GEO-ID. S2-M3: the 2-DoF constraint
+with known axes and the range-of-motion cost with Ω fitted on train. **One branch and one pull request for both**:
+the solvers share the dispatch in `geo.py`, and GEO-ID's range of motion needs the facing, which comes from the knee.
+Both milestones' "done when" criteria are checks below.
+
+**Files added.** `mesqsim/estimators/{anatomy,hinge,twodof,rom}.py`, `mesqsim/geo_fit.py`,
+`tests/test_{hinge,twodof_rom,config_write}.py`.
+**Changed.** `mesqsim/estimators/geo.py`, `mesqsim/{config,cli,validation}.py`, `configs/default.yaml`,
+`docs/{MATH,CODE,PIPELINE,VALIDATION}.md`, `README.md`, `CLAUDE.md`.
+
+**What was built.**
+- Hinge (`hinge.py`): δ̂ = atan2(S, C), κ = I/σ̂² (the exact von Mises likelihood), the blind spot; axis
+  identification from body rates (Seel et al. 2014); relative-sign votes by the vertical rule and a T-pose rule (the
+  flipped sign would turn the knee 180° since the T-pose), which realises the brief's one-way-flexion *Should*.
+- 2-DoF (`twodof.py`): the Laidig et al. 2019 constraint as a degree-2 trigonometric polynomial (five sums), Laplace κ,
+  the two-minima rule (ambiguous when the likelihood ratio is below e³).
+- Range of motion (`rom.py`): J(δ) = M0 + cos δ·M1 + sin δ·M2 on a 1° grid; κ by matching the circular mean of
+  exp(−cost/2σ²) (the cost is flat inside the box, where Laplace is degenerate); Ω percentiles.
+- `anatomy.py`: the knee axis (SMPL x), the 2-DoF axis pairs (elbow y/x, wrist z/y, ankle x/z, γ = 90°), one Cardan
+  sequence per joint (ISB Z-X-Y = SMPL `XZY` for the trunk, neck and hips; `ZYX` for the shoulders).
+- `geo.py`: GEO-K (true axes and mountings: hinge, 2-DoF, range of motion) and GEO-ID (identified knee axes, sign
+  votes, the knee axis's direction from one-way flexion, **facing from the knees**, T-pose frames m̂ for the range of
+  motion at 2-DoF and 3-DoF joints).
+- `config.set_leaf_in_file`, `python -m mesqsim fit-geometry rom [--source amass] [--write]`, `geo_fit.fit_rom`.
+
+**Commands and results.**
+- Scratch run, synthetic walk and circle, 10-minute idle, two seeds each, knees only: mean error GEO-K 0.51–2.31°,
+  GEO-ID 1.53–3.68°, B1 6.80–11.74°; GEO-ID's axes 0.02–0.98° from the truth (fusion noise on); every window voted
+  for the right relative sign.
+- The first run of check 22.1(d) failed: GEO-K's knee 5.4° off on a clean session. Cause: T-pose windows — the
+  simulator's 5° posture error per segment makes the knee non-hinge there, and a static window repeats one posture
+  ~256 times, claiming κ ≈ 10⁶ (−3.3° biased). Fixes: geometry windows start at the motion phase; each window's
+  variance gets a model-error term (1/κ_w = 1/κ_stat + σ_m²). (d) then tests the window estimates through frames,
+  Step 0, clock and pairs: max 0.0144°.
+- `python -m mesqsim fit-geometry rom --source amass --write` at `894ba79` (clean worktree), 1 min 36 s: 5,974
+  training sequences, 1,919,013 frames (about 30 Hz). Ω (degrees, Cardan angles 1 / 2 / 3):
+
+  | joint | angle 1 | angle 2 | angle 3 |
+  |---|---|---|---|
+  | lower_back | −15.44, 69.20 | −22.90, 25.83 | −29.46, 24.47 |
+  | neck | −49.96, 45.94 | −26.73, 28.04 | −56.61, 57.69 |
+  | l_shoulder | −126.29, 87.86 | −78.78, 30.38 | −90.26, 90.59 |
+  | r_shoulder | −102.05, 126.91 | −30.20, 81.52 | −104.54, 107.83 |
+  | l_elbow | −129.07, 0.87 | −40.43, 45.72 | −30.43, 48.31 |
+  | r_elbow | −5.05, 130.13 | −42.53, 45.84 | −52.63, 27.28 |
+  | l_wrist | −43.04, 61.46 | −37.24, 15.75 | −71.23, 41.06 |
+  | r_wrist | −64.26, 52.69 | −18.14, 36.61 | −68.11, 41.76 |
+  | l_hip | −84.03, 23.71 | −10.03, 36.34 | −18.13, 14.30 |
+  | r_hip | −83.26, 19.63 | −32.45, 10.90 | −14.60, 15.96 |
+  | l_ankle | −39.03, 27.01 | −17.44, 19.02 | −12.47, 22.45 |
+  | r_ankle | −39.69, 29.06 | −12.12, 21.09 | −23.29, 13.49 |
+
+  **How hinge-like the AMASS knee is** (brief §5.4; RMS on the training split of the knee's rotation about its two
+  other axes, Cardan `XZY` angles 2 and 3): left 6.99° and 11.37°, right 5.65° and 7.44°. **Third-axis rotation of
+  the 2-DoF joints** (brief §5.5): elbows 13.71° / 16.17°, wrists 20.42° / 20.11°, ankles 9.52° / 9.06°.
+- Scratch run, all joints with synthetic-fitted boxes: GEO-ID's facing from the knees; m̂ within a median 5.4–5.7° of
+  the true mountings (the T-pose posture error is 5° RMS).
+- `bash scripts/check_all.sh` at `05dc726` (clean worktree), 2026-11-16 23:34 UTC, 2 min 16 s: `ruff` clean; `pytest`
+  **198 passed**; validation **47 passed, 0 failed, 0 skipped of 47**. 22.1: 8.9e-16 rad, −7.0000°, I = 0 and κ = 0,
+  GEO-K's 38 knee windows within 0.0144°; 23.1: spread 0.790° against 0.799° predicted (ratio 0.989); 24.1: axes within
+  0.001° noise-free, sign votes as expected, GEO-ID's knee axes within 0.55° on a simulated walk; 25.1: 5.0e-13 rad over
+  120 windows, the built twin ambiguous with κ = 0; 26.1: 0.369° when the limits are reached, κ = 1.97 inside them
+  (95 % half-width 104°), 0 without a box; 29.1: O2 0 ≤ GEO-K 3.85° ≤ B1 19.87–19.90° at both knees.
+
+**Decisions.**
+- The anatomical axes and Cardan sequences above ([MATH.md](docs/MATH.md) §12–14).
+- GEO-ID's facing from the identified knee axes (the knee's flexion axis is the body's left-right axis; its direction
+  from the one-way flexion) instead of the brief's optional forward arm raise (§5.8, a *Should*): no extra protocol
+  step and no simulator change. Until both are known, GEO-ID's 2-DoF and 3-DoF joints hold their box estimate.
+- GEO-ID uses the range of motion at the 2-DoF joints (the brief's rule until j1, j2 are identified from motion, a
+  *Should* not built).
+- Range-of-motion κ by moment matching, not Laplace (flat cost). Windows from the motion phase. Model-error floors.
+- Fitted values are written into `configs/default.yaml` in place (comments kept) with a source naming the command,
+  the data and split hash, the counts and the commit; fits run in the clean worktree.
+
+**Open questions.** On AMASS the knee is far from an exact hinge in SMPL's frames (off-axis RMS up to 11°) and the
+2-DoF joints turn 9–20° about their third axis, so the assumed model errors (2°, 3°) are too small: S2-M4 fits them
+on validation.
