@@ -1101,3 +1101,280 @@ def _geo_timing(quick: bool) -> CheckResult:
     p50, p95 = np.percentile(e, [50, 95])
     return CheckResult(f"default: {e.size} pairs, P50 {p50:.2f} ms, P95 {p95:.2f} ms, max {e.max():.2f} ms; "
                        f"stress (stalls): P95 {np.percentile(st, 95):.2f} ms, max {st.max():.2f} ms", ok)  # fmt: skip
+
+
+@register(
+    "22.1",
+    "Hinge, exact: closed form, the 12°/5° example, the blind spot, and GEO-K through the pipeline",
+    "(a) 500 random hinge windows (random delta, axis, mountings, poses, 1-40 pairs), no noise; (b) h = x horizontal "
+    "with psi_p = 12°, psi_c = 5°; (c) a vertical axis; (d) GEO-K on a simulated 20 s walk with every error off except "
+    "arbitrary offsets and drift (preset zero, offsets arbitrary, drift 0.2 °/min): every knee window's estimate "
+    "against the true delta at the window end (the window solver through frames, Step 0, clock and pairs).",
+    "Exact data must give the exact answer; (d) catches m against m^-1 (pod -> segment) and frame-order bugs that "
+    "would make GEO-K fail on clean data (brief §5.10).",
+    "(a) |delta_hat - delta| < 1e-9 rad; (b) -7.000°; (c) I < 1e-12 and kappa = 0; (d) every knee window < 0.1°",
+    "pytest tests/test_hinge.py",
+)
+def _hinge_exact(quick: bool) -> CheckResult:
+    from .body import JOINT_BY_NAME, JOINTS
+    from .conventions import exp_map
+    from .estimators.contract import GeoTruth
+    from .estimators.geo import GeoEstimator
+    from .estimators.hinge import axis_in_world, hinge_closed_form
+
+    rng = np.random.default_rng(2201)
+    worst = 0.0
+    for _ in range(100 if quick else 500):
+        n = int(rng.integers(1, 41))
+        delta, psi_p = rng.uniform(-np.pi, np.pi, 2)
+        u_seg = quat_normalize(np.r_[rng.normal(size=3), 0.0])[:3]
+        m_p, m_c = quat_normalize(rng.normal(size=(2, 4)))
+        s_p = quat_normalize(rng.normal(size=(n, 4)))
+        s_c = quat_mul(s_p, exp_map(rng.uniform(0, 2, n)[:, None] * u_seg))
+        q_p = quat_mul(quat_mul(yaw_quat(np.full(n, -psi_p)), s_p), m_p)
+        q_c = quat_mul(quat_mul(yaw_quat(np.full(n, -psi_p - delta)), s_c), m_c)
+        a = axis_in_world(q_p, quat_rotate(quat_conj(m_p), u_seg))[:, :2]
+        b = axis_in_world(q_c, quat_rotate(quat_conj(m_c), u_seg))[:, :2]
+        worst = max(worst, abs(float(wrap_rad(hinge_closed_form(a, b, 1e-3).delta_rad - delta))))
+    a = quat_rotate(yaw_quat(-np.deg2rad(12.0)), [1.0, 0.0, 0.0])[None, :2]
+    b = quat_rotate(yaw_quat(-np.deg2rad(5.0)), [1.0, 0.0, 0.0])[None, :2]
+    ex = _deg(hinge_closed_form(a, b, 1e-3).delta_rad)
+    vert = hinge_closed_form(quat_rotate(yaw_quat(np.linspace(0, 3, 20)), [0.0, 0.0, 1.0])[:, :2],
+                             quat_rotate(yaw_quat(np.linspace(1, -2, 20)), [0.0, 0.0, 1.0])[:, :2], 1e-3)  # fmt: skip
+    d, _, series, host, cfg = _geo_session("zero", **{"error_model.offset_mode": "arbitrary",
+                                                      "error_model.drift_sigma_deg_per_min": 0.2})  # fmt: skip
+    _, diag = GeoEstimator(cfg, GeoTruth.from_meta(d.meta)).run(series, d.session, host, diagnostics=True)
+    from . import evaluate as ev
+
+    g = ev.Grid(d.labels_joints)
+    knees = {k for k, j in enumerate(JOINTS) if j.jtype == "hinge"}
+    win = [r for r in diag.windows if r["joint"] in knees and r["status"] == "ok"]
+    k_end = np.clip(np.searchsorted(host, [r["t_s"] for r in win], side="right") - 1, 0, host.size - 1)
+    err = _deg(np.max(np.abs(wrap_rad(np.array([r["delta_rad"] for r in win])
+                                      - g.delta_rad[k_end, [r["joint"] for r in win]]))))  # fmt: skip
+    assert JOINT_BY_NAME["l_knee"].jtype == "hinge" and len(win) > 20
+    ok = worst < 1e-9 and abs(ex + 7.0) < 5e-4 and vert.info < 1e-12 and vert.kappa == 0.0 and err < 0.1
+    return CheckResult(f"(a) max error {worst:.1e} rad; (b) {ex:.4f}°; (c) I {vert.info:.1e}, kappa {vert.kappa:g}; "
+                       f"(d) GEO-K knee windows: {len(win)}, max error {err:.4f}°", ok)  # fmt: skip
+
+
+@register(
+    "23.1",
+    "Hinge likelihood: the spread of delta_hat matches 1/sqrt(kappa)",
+    "One window's hinge geometry (40 pairs) with independent Gaussian noise (sigma 0.05 per component), 2,000 Monte "
+    "Carlo draws: the circular RMS spread of delta_hat against the RMS of the predicted 1/sqrt(kappa).",
+    "Verifies the formula kappa = I/sigma_hat^2 (the exact von Mises likelihood), not the real noise: correlated "
+    "residuals are handled by the fitted kappa scale.",
+    "ratio within 10 % of 1",
+    "pytest tests/test_hinge.py -k likelihood",
+)
+def _hinge_likelihood(quick: bool) -> CheckResult:
+    from .conventions import circ_mean_rad, exp_map
+    from .estimators.hinge import axis_in_world, hinge_closed_form
+
+    rng = np.random.default_rng(2301)
+    n = 40
+    u_seg = np.array([0.6, 0.0, 0.8])
+    s_p = quat_normalize(rng.normal(size=(n, 4)))
+    s_c = quat_mul(s_p, exp_map(rng.uniform(0, 2, n)[:, None] * u_seg))
+    a0 = axis_in_world(s_p, u_seg)[:, :2]
+    b0 = axis_in_world(quat_mul(yaw_quat(np.full(n, -0.3)), s_c), u_seg)[:, :2]
+    est, kap = [], []
+    for _ in range(2000):
+        f = hinge_closed_form(a0 + rng.normal(0, 0.05, a0.shape), b0 + rng.normal(0, 0.05, b0.shape), 1e-6)
+        est.append(f.delta_rad)
+        kap.append(f.kappa)
+    spread = float(np.sqrt(np.mean(wrap_rad(np.array(est) - circ_mean_rad(est)) ** 2)))
+    predicted = float(np.sqrt(np.mean(1.0 / np.array(kap))))
+    return CheckResult(f"spread {_deg(spread):.3f}°, predicted {_deg(predicted):.3f}°, ratio {spread / predicted:.3f}",
+                       abs(spread / predicted - 1) < 0.10)  # fmt: skip
+
+
+@register(
+    "24.1",
+    "Axis identification: within 1° on noise-free hinge motion; a flipped axis is corrected or flagged",
+    "Five noise-free synthetic hinge motions (parent tumbling, child flexing; random mountings and private norths): "
+    "fit u_p, u_c from body rates (Seel et al. 2014). Then deliberately flip u_c: the vertical rule must vote to "
+    "flip back when the axis leaves the horizontal, and abstain when it stays horizontal; the T-pose rule must vote to "
+    "flip back for a horizontal knee axis. Also GEO-ID through the pipeline: its knee axes on a simulated walk.",
+    "A wrong axis or a wrong relative sign (180° error) would make GEO-ID's hinge worse than nothing (brief §5.10).",
+    "both axes within 1° in every trial; votes +1 / -1 / 0 as stated; GEO-ID's knee axes within 2° on the walk",
+    "pytest tests/test_hinge.py -k 'identified or flipped'",
+)
+def _axis_identification(quick: bool) -> CheckResult:
+    from .conventions import exp_map
+    from .estimators.clock import body_rates
+    from .estimators.geo import GeoEstimator
+    from .estimators.hinge import axis_in_world, identify_hinge_axes, vote_tpose, vote_vertical
+
+    rng = np.random.default_rng(2401)
+    worst = 0.0
+    votes_ok = True
+    for trial in range(5):
+        t = np.arange(0.0, 8.0, 0.02)
+        u_seg = np.array([1.0, 0.0, 0.0])
+        s_p = exp_map(np.c_[0.6 * np.sin(1.3 * t), 0.4 * np.sin(0.7 * t + 1.0), 0.5 * np.sin(0.9 * t + 2.0)])
+        s_c = quat_mul(s_p, exp_map((0.8 + 0.7 * np.sin(2.1 * t))[:, None] * u_seg))
+        m_p, m_c = quat_normalize(rng.normal(size=(2, 4)))
+        q_p, q_c = quat_mul(s_p, m_p), quat_mul(s_c, m_c)
+        u_p, u_c = quat_rotate(quat_conj(m_p), u_seg), quat_rotate(quat_conj(m_c), u_seg)
+        psi = rng.uniform(-np.pi, np.pi, 2)
+        _, w_p = body_rates(t, quat_mul(yaw_quat(np.full(t.size, -psi[0])), q_p), 0.1)
+        _, w_c = body_rates(t, quat_mul(yaw_quat(np.full(t.size, -psi[1])), q_c), 0.1)
+        fit = identify_hinge_axes(w_p, w_c, n_starts=8)
+        for got, true in ((fit.u_p, u_p), (fit.u_c, u_c)):
+            worst = max(worst, _deg(np.arccos(np.clip(abs(np.dot(got, true)), 0, 1))))
+        a3, b3 = axis_in_world(q_p, u_p), axis_in_world(q_c, u_c)
+        mp = np.sin(np.deg2rad(5.0)) ** 2
+        flat = a3.copy()
+        flat[:, 2] = 0.0
+        votes_ok &= vote_vertical(a3, b3, mp) == 1 and vote_vertical(a3, -b3, mp) == -1
+        votes_ok &= vote_vertical(flat, flat, mp) == 0
+        if trial == 0:  # the T-pose rule on a horizontal knee axis
+            up = quat_mul(yaw_quat(0.7), exp_map([np.pi / 2, 0, 0]))
+            flex = np.deg2rad(rng.uniform(5, 70, 64))
+            qp = quat_mul(quat_mul(yaw_quat(np.full(64, -0.4)), np.broadcast_to(up, (64, 4))), m_p)
+            qc = quat_mul(quat_mul(yaw_quat(np.full(64, 1.1)), quat_mul(np.broadcast_to(up, (64, 4)),
+                                                                        exp_map(flex[:, None] * u_seg))), m_c)
+            j_t = quat_mul(quat_mul(quat_conj(quat_mul(quat_mul(yaw_quat(-0.4), up), m_p)), yaw_quat(-1.5)),
+                           quat_mul(quat_mul(yaw_quat(1.1), up), m_c))  # fmt: skip
+            votes_ok &= vote_tpose(qp, qc, -1.5, j_t, np.deg2rad(60)) == 1
+            votes_ok &= vote_tpose(qp, qc, -1.5 + np.pi, j_t, np.deg2rad(60)) == -1
+    d, _, series, host, cfg = _geo_session(None, seed=1, **{"session.idle_s": 600.0})
+    _, diag = GeoEstimator(cfg).run(series, d.session, host, diagnostics=True)
+    mq = np.array([p["mount_q"] for p in d.meta["plan"]["pods"]])
+    pipe = []
+    for j, (p, c) in ((10, (9, 10)), (11, (12, 13))):
+        f = diag.state["axes"].get(j)
+        if f is None:
+            pipe.append(np.inf)
+            continue
+        for got, pod in ((f.u_p, p), (f.u_c, c)):
+            true = quat_rotate(quat_conj(mq[pod]), [1.0, 0.0, 0.0])
+            pipe.append(_deg(np.arccos(np.clip(abs(np.dot(got, true)), 0, 1))))
+    ok = worst < 1.0 and votes_ok and max(pipe) < 2.0
+    return CheckResult(f"noise-free: worst axis error {worst:.3f}° over 5 motions; sign votes as expected: "
+                       f"{votes_ok}; GEO-ID on a simulated walk (fusion noise on): knee axes within {max(pipe):.2f}°",
+                       ok)  # fmt: skip
+
+
+@register(
+    "29.1",
+    "Ordering with drift on, fusion noise off, known axes: O2 = 0 ≤ GEO-K ≤ B1 at every hinge",
+    "Default config with drift 1 °/min, fusion tilt error 0 and a 10-minute idle; mean primary error over the motion "
+    "at each knee, averaged over 4 sessions of a 20 s synthetic walk (2 in quick mode).",
+    "With exact tilt and known axes the hinge geometry sees the drift that box registration cannot (brief §8 item 9).",
+    "O2 = 0 ≤ GEO-K ≤ B1 at both knees",
+    "pytest tests/test_validation.py -k check_29_1",
+)
+def _ordering_hinge(quick: bool) -> CheckResult:
+    from . import evaluate as ev
+    from .body import JOINTS
+
+    rows = []
+    for seed in range(2 if quick else 4):
+        _, data, series, _, cfg = _geo_session(None, seed=seed, **{"session.idle_s": 600.0,
+                                                                   "error_model.drift_sigma_deg_per_min": 1.0,
+                                                                   "error_model.tilt_sigma_deg": 0.0})  # fmt: skip
+        e = ev.evaluate(data, series, ("O2", "GEO-K", "B1"), cfg)
+        rows.append(e[e["phase"] == "motion"].groupby(["baseline", "joint"])["err_heading_deg"].mean())
+    m = sum(rows) / len(rows)
+    ok, parts = True, []
+    for k, j in enumerate(JOINTS):
+        if j.jtype != "hinge":
+            continue
+        o2, gk, b1 = m[("O2", k)], m[("GEO-K", k)], m[("B1", k)]
+        ok &= o2 == 0.0 and gk <= b1
+        parts.append(f"{j.name}: O2 {o2:.3f}°, GEO-K {gk:.3f}°, B1 {b1:.3f}°")
+    return CheckResult("; ".join(parts), ok)
+
+
+@register(
+    "25.1",
+    "2-DoF, exact: the constraint recovers delta; two equal minima are flagged ambiguous",
+    "120 random universal-joint windows (elbow, wrist and ankle axes; random delta, mountings, poses, private norths), "
+    "no noise, known axes: delta_hat against delta. Then a built case with j1 horizontal and gamma = 90°, where the "
+    "vertical terms vanish and delta, delta + 180° fit equally well.",
+    "Exact data must give the exact answer; the 180° twin must never be reported with confidence (brief §5.5).",
+    "|delta_hat - delta| < 1e-6 rad; the built case ambiguous with kappa = 0",
+    "pytest tests/test_twodof_rom.py -k 'twodof or ambiguous'",
+)
+def _twodof_exact(quick: bool) -> CheckResult:
+    from .conventions import exp_map
+    from .estimators.anatomy import TWODOF_AXES
+    from .estimators.hinge import axis_in_world
+    from .estimators.twodof import twodof_solve
+
+    rng = np.random.default_rng(2501)
+    worst, n_amb = 0.0, 0
+    for joint in ("l_elbow", "l_wrist", "l_ankle"):
+        j1, j2, gamma = TWODOF_AXES[joint]
+        for _ in range(20 if quick else 40):
+            n, delta, psi = 60, rng.uniform(-np.pi, np.pi), rng.uniform(-np.pi, np.pi)
+            m_p, m_c = quat_normalize(rng.normal(size=(2, 4)))
+            s_p = exp_map(rng.normal(0, 1.0, (n, 3)))
+            s_c = quat_mul(quat_mul(s_p, exp_map(rng.uniform(-1.2, 1.2, n)[:, None] * j1)),
+                           exp_map(rng.uniform(-1.2, 1.2, n)[:, None] * j2))  # fmt: skip
+            q_p = quat_mul(quat_mul(yaw_quat(np.full(n, -psi)), s_p), m_p)
+            q_c = quat_mul(quat_mul(yaw_quat(np.full(n, -psi - delta)), s_c), m_c)
+            fit = twodof_solve(axis_in_world(q_p, quat_rotate(quat_conj(m_p), j1)),
+                               axis_in_world(q_c, quat_rotate(quat_conj(m_c), j2)), np.cos(gamma), 1e-6, 3.0)
+            n_amb += int(fit.ambiguous)
+            worst = max(worst, abs(float(wrap_rad(fit.delta_rad - delta))))
+    a3 = np.c_[rng.normal(size=(50, 2)), np.zeros(50)]
+    rot = np.array([[np.cos(-0.7), -np.sin(-0.7)], [np.sin(-0.7), np.cos(-0.7)]])
+    b3 = np.c_[(np.c_[-a3[:, 1], a3[:, 0]] * rng.uniform(0.5, 1.5, (50, 1))) @ rot.T, rng.normal(size=50)]
+    twin = twodof_solve(a3, b3, 0.0, 1e-3, 3.0)
+    ok = worst < 1e-6 and n_amb == 0 and twin.ambiguous and twin.kappa == 0.0
+    return CheckResult(f"max error {worst:.1e} rad over {3 * (20 if quick else 40)} windows ({n_amb} ambiguous); "
+                       f"built twin: ambiguous {twin.ambiguous}, kappa {twin.kappa:g}, cost gap "
+                       f"{abs(twin.second_cost - twin.cost):.1e}", ok)  # fmt: skip
+
+
+@register(
+    "26.1",
+    "Range of motion: within 1° when the motion reaches the limits; almost no information inside them",
+    "Noise-free hip windows (Cardan XZY; 120 samples; random delta, mountings, pelvis facing): (a) axial rotation "
+    "sweeping its whole allowed range ±40° against the box [-10°, 60°] x [-10°, 10°] x [-40°, 40°]; (b) a ±10° sweep "
+    "against a wide box [-90°, 120°] x [-60°, 60°] x [-90°, 90°] that it never reaches; (c) no box at all.",
+    "At ball joints the only clue is the joint limit; where the motion stays inside, kappa must stay near 0 instead "
+    "of inventing confidence (brief §5.6).",
+    "(a) |delta_hat - delta| < 1°; (b) kappa < 3 (95 % interval wider than ±60°); (c) kappa = 0",
+    "pytest tests/test_twodof_rom.py -k rom",
+)
+def _rom_check(quick: bool) -> CheckResult:
+    from scipy.spatial.transform import Rotation
+
+    from .conventions import exp_map, vm_halfwidth_rad
+    from .estimators.anatomy import CARDAN_SEQ
+    from .estimators.rom import UNBOUNDED_DEG, rom_solve
+
+    rng = np.random.default_rng(2601)
+    seq = CARDAN_SEQ["l_hip"]
+
+    def window(delta, axial_deg):
+        n, psi = 120, rng.uniform(-np.pi, np.pi)
+        m_p, m_c = quat_normalize(rng.normal(size=(2, 4)))
+        s_p = quat_mul(yaw_quat(rng.uniform(-np.pi, np.pi)), exp_map([np.pi / 2, 0.0, 0.0]))
+        s_p = np.broadcast_to(s_p, (n, 4))
+        rel = Rotation.from_euler(seq, np.c_[np.deg2rad(rng.uniform(-10, 60, n)), np.deg2rad(rng.uniform(-10, 10, n)),
+                                             np.deg2rad(np.linspace(-axial_deg, axial_deg, n))]).as_quat()  # fmt: skip
+        q_p = quat_mul(quat_mul(yaw_quat(np.full(n, -psi)), s_p), m_p)
+        q_c = quat_mul(quat_mul(yaw_quat(np.full(n, -psi - delta)), quat_mul(s_p, rel)), m_c)
+        return quat_mul(q_p, quat_conj(m_p)), quat_mul(q_c, quat_conj(m_c))
+
+    tight = np.deg2rad([[-10, 60], [-10, 10], [-40, 40]])
+    wide = np.deg2rad([[-90, 120], [-60, 60], [-90, 90]])
+    free = np.deg2rad(np.array(UNBOUNDED_DEG))
+    errs = []
+    for delta in rng.uniform(-np.pi, np.pi, 3 if quick else 8):
+        a_q, b_q = window(delta, 40.0)
+        errs.append(abs(_deg(wrap_rad(rom_solve(a_q, b_q, seq, tight[:, 0], tight[:, 1],
+                                                np.deg2rad(2.0)).delta_rad - delta))))  # fmt: skip
+    a_q, b_q = window(0.8, 10.0)
+    k_wide = rom_solve(a_q, b_q, seq, wide[:, 0], wide[:, 1], np.deg2rad(5.0)).kappa
+    k_free = rom_solve(a_q, b_q, seq, free[:, 0], free[:, 1], np.deg2rad(5.0)).kappa
+    hw = _deg(vm_halfwidth_rad(k_wide, 0.95))
+    ok = max(errs) < 1.0 and k_wide < 3.0 and hw > 60.0 and k_free == 0.0
+    return CheckResult(f"(a) max error {max(errs):.3f}° over {len(errs)} windows; (b) kappa {k_wide:.2f} "
+                       f"(95 % half-width {hw:.0f}°); (c) kappa {k_free:g}", ok)  # fmt: skip

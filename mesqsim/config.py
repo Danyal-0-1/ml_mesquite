@@ -159,6 +159,67 @@ def load_presets(config_path: str | None) -> dict[str, dict[str, Any]]:
         return yaml.safe_load(f) or {}
 
 
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _block_end(lines: list[str], start: int, end: int, indent: int) -> int:
+    """First line at or before ``indent`` (ignoring blanks and comments) in [start, end), else ``end``."""
+    for i in range(start, end):
+        s = lines[i].strip()
+        if s and not s.startswith("#") and _indent(lines[i]) <= indent:
+            return i
+    return end
+
+
+def set_leaf_in_file(path: str | Path, key: str, value: Any, label: str, source: str) -> None:
+    """Set one parameter's value, label and source in a YAML config file **in place**, keeping every comment and
+    every other line as it is (PyYAML would drop the comments). Missing groups and leaves are appended to their
+    parent block. Used by the fitting commands, which write ``label: fitted`` with a source naming the command.
+    """
+    if label not in LABELS:
+        raise ValueError(f"label must be one of {LABELS}")
+    path = Path(path)
+    lines = path.read_text(encoding="utf-8").split("\n")
+    parts = key.split(".")
+    start, end = 0, len(lines)
+    for depth, part in enumerate(parts):
+        ind = " " * (2 * depth)
+        found = None
+        for i in range(start, end):
+            ln = lines[i]
+            if _indent(ln) == 2 * depth and ln.strip().split(":")[0] == part and ln.strip().startswith(part + ":"):
+                found = i
+                break
+        if found is None:  # append the missing group or leaf at the end of its parent block
+            new = [f"{ind}{part}:"]
+            insert = end
+            while insert > start and not lines[insert - 1].strip():
+                insert -= 1
+            lines[insert:insert] = new
+            found = insert
+            end += 1
+        start = found + 1
+        end = _block_end(lines, start, end, 2 * depth)
+    ind = " " * (2 * len(parts))
+    flow = yaml.safe_dump(value, default_flow_style=True, width=1 << 20).strip()
+    if flow.endswith("\n...") or flow.endswith("..."):
+        flow = flow.replace("\n...", "").rstrip(".").strip()
+    fields = {"value": flow, "label": label, "source": json.dumps(source, ensure_ascii=False)}
+    for name, text in fields.items():
+        for i in range(start, end):
+            if _indent(lines[i]) == len(ind) and lines[i].strip().startswith(name + ":"):
+                lines[i] = f"{ind}{name}: {text}"
+                break
+        else:
+            lines.insert(end, f"{ind}{name}: {text}")
+            end += 1
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    check = load_config(path)
+    if check.get(key) != yaml.safe_load(flow):
+        raise RuntimeError(f"writing {key} into {path} did not round-trip")
+
+
 def parse_override(text: str) -> tuple[str, Any]:
     """``"a.b=1.5"`` -> ``("a.b", 1.5)``; the value is parsed as YAML (numbers, lists, booleans, strings)."""
     if "=" not in text:

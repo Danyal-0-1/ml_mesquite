@@ -255,3 +255,116 @@ geometry:
       value: 1.0
       label: assumption
       source: "Step 2 brief §5.4, §5.6: kappa scale for range-of-motion windows; 1 until fitted on validation"
+  hinge_sigma_floor_deg:
+    value: 0.5
+    label: assumption
+    source: "Step 2 brief §5.4: floor of the hinge residual spread sigma_hat in kappa = I/sigma_hat^2 (noise-free data would give kappa = infinity); the estimator's belief about fusion tilt error"
+  hinge_model_sigma_deg:
+    value: 2.0
+    label: assumption
+    source: "how far a real knee departs from a hinge within one window: each window's variance is sigma_hat^2/I + this^2 (statistical plus model error). Step 2 brief §5.4 asks to measure the knee's rotation about its other two axes on AMASS train: that measurement should replace this belief"
+  axis_span_s:
+    value: 120.0
+    label: assumption
+    source: "Step 2 brief §5.4 (GEO-ID): hinge axes are identified from the rate pairs of the last 120 s (current boot epochs, from the T-pose on); axes are fixed in the pods, so a long span helps"
+  axis_min_rate_deg_s:
+    value: 20.0
+    label: assumption
+    source: "Step 2 brief §5.4: only rate pairs with |omega_p| + |omega_c| >= 20 deg/s ('enough rotation') enter the axis fit"
+  axis_min_pairs:
+    value: 64
+    label: assumption
+    source: "Step 2 brief §5.4: at least 64 such rate pairs (2 s of motion at 32 Hz) before an axis fit is attempted"
+  axis_max_residual:
+    value: 0.5
+    label: assumption
+    source: "Step 2 brief §5.4: an axis fit is accepted when the RMS of |w_p x u_p| - |w_c x u_c| is at most 0.5 x the RMS rate (0 for an exact hinge)"
+  axis_starts:
+    value: 8
+    label: assumption
+    source: "Step 2 brief §5.4: least squares from 8 fixed starts for the first fit (several starts); later fits warm-start from the previous one plus 2"
+  sign_min_elev_deg:
+    value: 5.0
+    label: assumption
+    source: "Step 2 brief §5.4 sign rule: sum (q_p u_p)_z (q_c u_c)_z votes only when the mean product is at least sin^2(5 deg) (the axis tilted at least 5 deg RMS from horizontal)"
+  tpose_sign_margin_deg:
+    value: 60.0
+    label: assumption
+    source: "Step 2 brief §5.4 Should (knee one-way flexion), realised as a T-pose rule: under the flipped sign the knee would be turned 180 deg since the T-pose; vote when the median angles differ by at least 60 deg"
+  facing_flex_min_deg:
+    value: 20.0
+    label: assumption
+    source: "GEO-ID facing from the knees (substitute for Step 2 brief §5.8): samples whose shin has turned at least 20 deg since the T-pose vote on which way the knee axis points (the knee flexes one way)"
+  twodof_sigma_floor_deg:
+    value: 0.5
+    label: assumption
+    source: "Step 2 brief §5.5: floor of the 2-DoF residual spread, as the dot-product error sin(0.5 deg) of a 0.5 deg axis error"
+  twodof_ambiguity_llr:
+    value: 3.0
+    label: assumption
+    source: "Step 2 brief §5.5 two-minima rule: ambiguous (kappa = 0) when the second minimum is less likely than the best by a factor below e^3 = 20, i.e. its cost exceeds the best by less than 2·sigma_hat^2·3"
+  twodof_model_sigma_deg:
+    value: 3.0
+    label: assumption
+    source: "how far a real elbow, wrist or ankle departs from a 2-DoF joint within one window (window variance += this^2); Step 2 brief §5.5 asks to measure the third-axis rotation on AMASS train"
+  rom_sigma_deg:
+    value: 5.0
+    label: assumption
+    source: "Step 2 brief §5.6: spread of a joint angle about its true value (fusion, T-pose and mounting errors) in the range-of-motion weights exp(-cost/(2 sigma^2))"
+  rom_model_sigma_deg:
+    value: 5.0
+    label: assumption
+    source: "a range-of-motion window cannot pin delta more tightly than the box itself is certain (window variance += this^2)"
+  rom_percentiles:
+    value: [0.5, 99.5]
+    label: assumption
+    source: "Step 2 brief §5.6: Omega = the 0.5th and 99.5th percentiles of the training subjects' true joint angles"
+  rom_limits_deg:
+    lower_back:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    neck:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    l_shoulder:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    r_shoulder:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    l_elbow:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    r_elbow:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    l_wrist:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    r_wrist:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    l_hip:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    r_hip:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    l_ankle:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"
+    r_ankle:
+      value: [[-180.0, 180.0], [-90.0, 90.0], [-180.0, 180.0]]
+      label: assumption
+      source: "Step 2 brief §5.6: no limit (every Cardan angle allowed) until Omega is fitted on the training split by `python -m mesqsim fit-geometry rom --write`"

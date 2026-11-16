@@ -64,11 +64,11 @@ tables and figures for the four baselines.
 | M5 | splits, dataset, baselines, first results | done on branch `m5-results`; work log written in S2-M0 |
 | M6 | complete documentation, report, tag `step1` | done in S2-M0 (branch `s2-m0`); **tag `step1`** at `9b06673` (2026-11-16) |
 | S2-M0 | close Step 1: M5 work log, M6, AMASS download and split, results on AMASS | done; merged by Danyal (pull request #1); `main` = `step1`; the split and analysis plan wait for his freeze |
-| S2-M1 | Step 2 estimator contract, common clock, pairs, rates, `geometry:` config, scorer integration | done on branch `s2-m1`; merged into `main`, tag `s2-m1` |
+| S2-M1 | Step 2 estimator contract, common clock, pairs, rates, `geometry:` config, scorer integration | done on branch `s2-m1`; merged into `main` (pull request #2), tag `step2-m1` |
 | S2-M2…M8 | hinge, 2-DoF and range-of-motion solvers, filter, DIODEM, results, explanation pipeline, report | in progress ([Step 2 brief](docs/brief/STEP2_BRIEF.md) §7) |
 
 **Tags.** `step1` marks the end of Step 1 (simulator, Step 0, baselines). Each Step 2 milestone is merged into
-`main` and tagged `s2-m1`, `s2-m2`, …; `step2` will mark the end of Step 2. `git log --oneline step1..main` lists
+`main` and tagged `step2-m1`, `step2-m2`, …; `step2` will mark the end of Step 2. `git log --oneline step1..main` lists
 the Step 2 work.
 
 ## Quickstart: from a fresh clone to the Step 1 results
