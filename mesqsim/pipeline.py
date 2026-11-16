@@ -87,24 +87,31 @@ def summarise(errors: pd.DataFrame, phase: str = "motion") -> pd.DataFrame:
     return out[first + [c for c in out.columns if c not in first]]
 
 
-def score_run(run: Path, baselines=ev.BASELINES, phases=("motion",)) -> pd.DataFrame:
-    """Decode every session with Step 0, score the baselines, write results; return the summary.
+def score_run(run: Path, baselines=ev.BASELINES, phases=("motion",), cfg: Config | None = None) -> pd.DataFrame:
+    """Decode every session with Step 0, score the methods, write results; return the summary.
 
-    Only steps in ``phases`` are kept in ``results/errors.parquet`` (results are reported over the motion). For a
-    dataset run, each row also carries its session's split and motion start from ``dataset.csv``.
+    ``baselines`` may name any method of :data:`mesqsim.evaluate.METHODS`. The GEO methods read the estimator's
+    beliefs from the ``geometry:`` section of ``cfg`` (default: ``configs/default.yaml``), never from the run's
+    simulator config. Only steps in ``phases`` are kept in ``results/errors.parquet`` (results are reported over the
+    motion). For a dataset run, each row also carries its session's split and motion start from ``dataset.csv``.
     """
     run = Path(run)
+    if cfg is None and any(b in ev.GEO_METHODS for b in baselines):
+        from .config import load_config
+        from .paths import REPO_ROOT
+
+        cfg = load_config(REPO_ROOT / "configs" / "default.yaml")
     errors = []
     for sess in sorted((run / "sessions").iterdir()):
         data = io.read_session(sess)
         series = step0.decode(data["frames"], data["session"])
         io.write_parquet(sess / "series.parquet", series)
-        e = ev.evaluate(data, series, baselines)
+        e = ev.evaluate(data, series, baselines, cfg)
         e = e[e["phase"].isin(phases)]
         e.insert(0, "session", sess.name)
         errors.append(e)
     errors_df = pd.concat(errors, ignore_index=True)
-    for col in ("err_heading_deg", "err_orient_deg"):
+    for col in ("err_heading_deg", "err_orient_deg", "kappa"):
         errors_df[col] = errors_df[col].astype(np.float32)
     if (run / "dataset.csv").is_file():
         info = pd.read_csv(run / "dataset.csv")[["session", "split", "subset", "motion_start_min", "variant"]]

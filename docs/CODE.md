@@ -1,6 +1,6 @@
 # Code index
 
-*Status: M5. Updated at every milestone.*
+*Status: S2-M1 (Step 2: the estimator contract, the common clock, the GEO framework). Updated at every milestone.*
 
 ## How the modules connect
 
@@ -12,7 +12,13 @@ config      ◄── sim, cli, validation (one labelled YAML file + presets)
 recording   ◄── sim (which ticks the labels describe), step0 (which missing ticks are lost)
 sim/*       ◄── pipeline: motion → session plan → truth, timing, radio → simulate (frames + labels)
 step0       ◄── pipeline, evaluate (decoded series); reads frames + session.json only
-evaluate    ◄── pipeline (baselines, primary and secondary metrics)
+evaluate    ◄── pipeline (baselines B0-O2 and the Step 2 methods; primary and secondary metrics, kappa, uncertain)
+estimators/ ◄── evaluate (GEO-K, GEO-ID and ablations; reads Step 0's series + session.json only)
+   contract   Estimate(delta_rad, kappa, uncertain); GeoTruth (GEO-K's one truth argument)
+   clock      fresh samples, causal pod->host clock map (lower envelope), pairs, rotation rates
+   vmfilter   per-joint von Mises filter: init (box), predict, update (window), reset (reboot)
+   geo        events (box init, reboot resets, windows every step_s), solvers per joint type, query outputs
+geo_score   ◄── validation, scripts (scorer-side Step 2 diagnostics; may read labels): pair timing, truncation
 io, runs    ◄── pipeline, cli (session folders, run identity)
 splits      ◄── dataset, cli split, validation 9.x
 dataset     ◄── cli dataset, scripts/make_results.py (many sessions, each in its sequence's split)
@@ -50,7 +56,12 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [mesqsim/sim/radio.py](../mesqsim/sim/radio.py) | Gilbert–Elliott burst loss and arrival times |
 | [mesqsim/sim/simulate.py](../mesqsim/sim/simulate.py) | one session end to end: boot epochs, fusion error η, frames, labels, session.json, meta; `plan_hook` for the invariance checks |
 | [mesqsim/step0.py](../mesqsim/step0.py) | Step 0: unwrap count and ms_lo, reboots, fresh/held/lost, integrity, box registration, T-pose snapshot |
-| [mesqsim/evaluate.py](../mesqsim/evaluate.py) | baselines and the primary and secondary metrics |
+| [mesqsim/evaluate.py](../mesqsim/evaluate.py) | the method registry (B0, B1, O1, O2; GEO-K, GEO-ID and its ablations), the primary and secondary metrics, `kappa` and `uncertain` columns |
+| [mesqsim/estimators/contract.py](../mesqsim/estimators/contract.py) | the Step 2 estimator contract: `Estimate(delta_rad, kappa, uncertain)`, `GeoTruth` (GEO-K only) |
+| [mesqsim/estimators/clock.py](../mesqsim/estimators/clock.py) | fresh samples per pod, the causal pod-to-host clock map (lower envelope), parent/child pairs (slerp), body rotation rates |
+| [mesqsim/estimators/vmfilter.py](../mesqsim/estimators/vmfilter.py) | the per-joint von Mises filter (init, predict, update, reset; outputs at query times) |
+| [mesqsim/estimators/geo.py](../mesqsim/estimators/geo.py) | GEO-K and GEO-ID: box initialisation, reboot resets, windows every `step_s`, solver dispatch per joint type, hold flag, ablation switches |
+| [mesqsim/geo_score.py](../mesqsim/geo_score.py) | scorer-side Step 2 diagnostics (reads labels): pair timing errors, recordings cut at a host time |
 | [mesqsim/io.py](../mesqsim/io.py) | deterministic Parquet and JSON; the frames-table schema; session folders |
 | [mesqsim/runs.py](../mesqsim/runs.py) | run identity (commit, config hash, seed), run folders, listing and deleting |
 | [mesqsim/pipeline.py](../mesqsim/pipeline.py) | simulate a run, score a run (motion-phase errors, split and motion start attached), summaries |
@@ -69,12 +80,16 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [manifests/](../manifests/) | committed manifests: path, size, SHA-256 of every data file (data itself never committed) |
 | [scripts/validate.py](../scripts/validate.py) | runs every check and rewrites [VALIDATION.md](VALIDATION.md) |
 | [scripts/check_all.sh](../scripts/check_all.sh) | the full check: ruff, pytest, validation |
-| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_sim_full.py` (error-model units: Θ, η, loss, reboots, box registration, T-pose snapshot), `test_step0.py` (Step 0 on hand-built frames), `test_splits.py` (9: splits, manifest, dataset), `test_repo_hygiene.py` (rule 3), `test_validation.py` (every registered check, ids `check_<n>_<m>`); `conftest.py` skips data tests when data are absent |
+| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_sim_full.py` (error-model units: Θ, η, loss, reboots, box registration, T-pose snapshot), `test_step0.py` (Step 0 on hand-built frames), `test_splits.py` (9: splits, manifest, dataset), `test_repo_hygiene.py` (rule 3), `test_validation.py` (every registered check, ids `check_<n>_<m>`); Step 2: `test_conventions_step2.py` (Cardan angles, von Mises helpers), `test_clock.py` (clock map, pairs, rates), `test_geo_contract.py` (causality, determinism, label blindness, own beliefs, pair timing); `conftest.py` skips data tests when data are absent |
 | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | CI: ruff, the synthetic tests and quick validation on every push and pull request |
 
 ## Where to extend
 
-- A new rotation helper goes in `conventions.py` with a test in `test_conventions.py`, never inline elsewhere.
+- A new rotation helper goes in `conventions.py` with a test in `test_conventions.py` (Step 2 additions:
+  `test_conventions_step2.py`), never inline elsewhere. Circular statistics (von Mises) live there too.
+- A new Step 2 estimator implements the contract of `estimators/contract.py`, receives `cfg.section("geometry")`
+  (never the simulator's `error_model`), is registered in `evaluate.METHODS` (and `USES_TRUTH` if it reads truth),
+  and gets the causality, determinism and label-blindness tests of `test_geo_contract.py`.
 - A new validation number: add a `@register(...)` function in `validation.py`; it appears in VALIDATION.md and is
   asserted by `tests/test_validation.py` automatically.
 - A new dataset: a module in `mesqsim/data/` that downloads (or verifies a hand download) into `$MESQ_DATA_DIR/<name>/`,

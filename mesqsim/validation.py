@@ -973,3 +973,131 @@ def _splits_dataset(quick: bool) -> CheckResult:
     ok = bool((per_source == 1).all()) and ds["seed"].nunique() == len(ds)
     return CheckResult(f"{len(ds)} sessions from {ds['source'].nunique()} sequences; splits per sequence "
                        f"{sorted(per_source.unique().tolist())}; distinct seeds {ds['seed'].nunique()}", ok)
+
+
+# ================================================================ Step 2 (Step 2 brief §8): item n is check 20 + n
+
+def _geo_session(preset: str | None = None, seed: int = 11, motion: str = "synthetic:walk:20", **overrides):
+    """One simulated session with Step 0's series and the scorer's query times (host times of the 32 Hz grid)."""
+    from . import evaluate as ev
+    from .config import load_config
+    from .paths import REPO_ROOT
+
+    d, data, series = _simulate(preset, seed=seed, motion=motion, **overrides)
+    host = ev.Grid(d.labels_joints).t_s + d.meta["plan"]["host_epoch_s"]
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml")
+    return d, data, series, host, cfg
+
+
+@register(
+    "21.1",
+    "Contract: causal (deleting later frames changes nothing before)",
+    "Default config, 20 s synthetic walk with a 10-minute idle; for GEO-ID and GEO-K, cut the frames table at 5 host "
+    "times (box, T-pose, three in the motion), decode the cut recording with Step 0, re-run the estimator and compare "
+    "every output (delta, kappa, uncertain) at the query times up to the cut.",
+    "An estimate at time t may use only frames that arrived at or before t (brief rule 9); a real-time display "
+    "cannot see the future.",
+    "identical bytes at every query time at or before each cut, for both estimators",
+    "pytest tests/test_geo_contract.py -k causal",
+)
+def _geo_causal(quick: bool) -> CheckResult:
+    from . import step0
+    from .estimators.contract import GeoTruth
+    from .estimators.geo import GeoEstimator
+    from .geo_score import truncate_frames
+
+    d, _, series, host, cfg = _geo_session(**{"session.idle_s": 600.0})
+    ph = {p["name"]: (p["t_host_start_s"], p["t_host_end_s"]) for p in d.session["phases"]}
+    m0 = ph["motion"][0]
+    cuts = [ph["box"][1] - 1.0, ph["tpose"][0] + 1.5, m0 + 2.2, m0 + 9.0, m0 + 15.5]
+    worst, compared = 0, 0
+    for truth in (None, GeoTruth.from_meta(d.meta)):
+        full = GeoEstimator(cfg, truth).estimate(series, d.session, host)
+        for t_cut in cuts[: 3 if quick else 5]:
+            s_cut = step0.decode(truncate_frames(d.frames, t_cut), d.session)
+            cut = GeoEstimator(cfg, truth).estimate(s_cut, d.session, host)
+            before = host <= t_cut
+            compared += int(before.sum())
+            worst += sum(int(not np.array_equal(a[before], b[before])) for a, b in zip(full, cut, strict=True))
+    return CheckResult(f"{compared} query steps compared over {len(cuts[: 3 if quick else 5])} cuts × 2 estimators; "
+                       f"{worst} outputs differ", worst == 0)  # fmt: skip
+
+
+@register(
+    "21.2",
+    "Contract: deterministic (same inputs, identical bytes)",
+    "Run GEO-ID and GEO-K twice on the same series, session and query times; compare the bytes of every output.",
+    "Results must be reproducible from (commit, config, seed); a random start or set ordering would break it.",
+    "identical bytes",
+    "pytest tests/test_geo_contract.py -k deterministic",
+)
+def _geo_deterministic(quick: bool) -> CheckResult:
+    from .estimators.contract import GeoTruth
+    from .estimators.geo import GeoEstimator
+
+    d, _, series, host, cfg = _geo_session()
+    same = True
+    for truth in (None, GeoTruth.from_meta(d.meta)):
+        a = GeoEstimator(cfg, truth).estimate(series, d.session, host)
+        b = GeoEstimator(cfg, truth).estimate(series.copy(), dict(d.session), host.copy())
+        same &= all(x.tobytes() == y.tobytes() for x, y in zip(a, b, strict=True))
+    return CheckResult(f"GEO-ID and GEO-K, two runs each: identical bytes {same}", same)
+
+
+@register(
+    "21.3",
+    "Contract: label-blind (GEO-ID identical with the labels deleted)",
+    "Write a simulated session folder, run GEO-ID; delete labels_ticks.parquet, labels_joints.parquet and meta.json; "
+    "read the folder as a real recording (frames and session.json only), run GEO-ID again.",
+    "A deployable estimator must run on the real suit, which has no labels (brief rule 7).",
+    "identical bytes",
+    "pytest tests/test_geo_contract.py -k label_blind",
+)
+def _geo_label_blind(quick: bool) -> CheckResult:
+    import tempfile
+    from pathlib import Path
+
+    from . import io, step0
+    from .estimators.geo import estimate_geo_id
+
+    d, _, _, host, cfg = _geo_session()
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = io.write_session(Path(tmp) / "s", d, d.meta)
+        rec = io.read_session(folder)
+        a = estimate_geo_id(step0.decode(rec["frames"], rec["session"]), rec["session"], host, cfg)
+        for name in ("labels_ticks.parquet", "labels_joints.parquet", "meta.json"):
+            (folder / name).unlink()
+        blind = io.read_session(folder, labels=False)
+        b = estimate_geo_id(step0.decode(blind["frames"], blind["session"]), blind["session"], host, cfg)
+    same = all(x.tobytes() == y.tobytes() for x, y in zip(a, b, strict=True))
+    return CheckResult(f"files left: frames.parquet, session.json; identical bytes {same}", same)
+
+
+@register(
+    "31.1",
+    "Timing: differential timing error of the parent/child pairs",
+    "Default config, 30 s synthetic walk with a 10-minute idle (3 seeds; 1 in quick mode): every pair GEO-ID formed, "
+    "joined to the labels on (pod, epoch, tick): the child's true time at the slerp point minus the parent's true "
+    "sample time. Also reported, not tested: the stress preset (100 ms sample-task stalls).",
+    "The geometry compares two pods at one instant; the pods' clocks differ, and ms_lo is the decode time, 0-11 ms "
+    "after the sample (Step 1 brief §3.3). Bound tested: 15 ms = the 11 ms decode-delay spread + 4 ms for the clock "
+    "fit. After a stall a sample is decoded up to one chip period late, so stress can exceed it.",
+    "max |error| ≤ 15 ms under the default config; P50 and P95 reported",
+    "pytest tests/test_geo_contract.py -k pair_timing",
+)
+def _geo_timing(quick: bool) -> CheckResult:
+    from .estimators.geo import GeoEstimator
+    from .geo_score import TIMING_BOUND_MS, pair_timing_errors_ms
+
+    def errors(preset, seed):
+        d, _, series, host, cfg = _geo_session(preset, seed=seed, motion="synthetic:walk:30",
+                                               **{"session.idle_s": 600.0})  # fmt: skip
+        _, diag = GeoEstimator(cfg).run(series, d.session, host, diagnostics=True)
+        return np.abs(pair_timing_errors_ms(diag, series, d.labels_ticks))
+
+    e = np.concatenate([errors(None, s) for s in ((1,) if quick else (1, 2, 3))])
+    st = errors("stress", 5)
+    ok = e.max() <= TIMING_BOUND_MS
+    p50, p95 = np.percentile(e, [50, 95])
+    return CheckResult(f"default: {e.size} pairs, P50 {p50:.2f} ms, P95 {p95:.2f} ms, max {e.max():.2f} ms; "
+                       f"stress (stalls): P95 {np.percentile(st, 95):.2f} ms, max {st.max():.2f} ms", ok)  # fmt: skip

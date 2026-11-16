@@ -1,7 +1,9 @@
-# Mesquite simulator: default parameters.
-# Every parameter: value, label (datasheet | firmware | assumption | measured), source; optional sweep.
+# Mesquite simulator and Step 2 estimator: default parameters.
+# Every parameter: value, label (datasheet | firmware | assumption | measured | fitted), source; optional sweep.
 # Units are in the names. Ranges written [a, b] are uniform draws per pod unless the source says otherwise.
 # Every "assumption" will be replaced by Danyal's bench measurements (brief §4.3).
+# "fitted": estimated on the training or validation split by the command named in its source; never on test data.
+# The geometry: section holds the estimator's own beliefs; the estimator never reads error_model: (the truth).
 
 motion:
   spine_joint:
@@ -137,8 +139,8 @@ error_model:
   drift_sigma_deg_per_min:
     value: 0.2
     label: assumption
-    source: "brief §4.3: residual gyro-bias drift b_i ~ N(0, sigma); undocumented by TDK; swept"
-    sweep: [0.05, 0.2, 1.0]
+    source: "brief §4.3: residual gyro-bias drift b_i ~ N(0, sigma); undocumented by TDK; swept. Stress value 2.0: Step 2 brief §4.1, the 2026-11-04 static hold of the real suit (JSON path), where the Head pod drifted -2.0 deg/min for 7 min (one pod's early drift, not a measured spread)"
+    sweep: [0.05, 0.2, 1.0, 2.0]
   scale_factor_max:
     value: 0.015
     label: datasheet
@@ -203,3 +205,53 @@ eval:
     value: 32.0
     label: firmware
     source: "brief §4.7: errors are reported per 32 Hz step, the send rate"
+
+# ---------------------------------------------------------------- Step 2: the geometric estimator (GEO-K, GEO-ID)
+# The estimator's own beliefs (Step 2 brief rule 8). Sweeps change only the simulator, never these.
+geometry:
+  window_s:
+    value: 8.0
+    label: assumption
+    source: "Step 2 brief §5.7, after Lehmann et al. 2020 (IFAC-PapersOnLine 53(2), doi:10.1016/j.ifacol.2020.12.401): each joint is re-solved over the last 8 s; ablations 4 and 16 s"
+    sweep: [4.0, 8.0, 16.0]
+  step_s:
+    value: 1.0
+    label: assumption
+    source: "Step 2 brief §5.7, after Lehmann et al. 2020: re-solve every 1 s. Consecutive windows share (window - step)/window of their samples, so each window enters the filter with weight step_s/window_s"
+  max_pair_gap_s:
+    value: 0.1
+    label: assumption
+    source: "Step 2 brief §5.3: a child is slerped between two fresh samples at most this far apart (about 3 send periods); otherwise no pair"
+  clock_window_s:
+    value: 30.0
+    label: assumption
+    source: "Step 2 brief §5.3: the causal pod-to-host clock map is fitted on the last 30 s of a pod's frames of its current boot epoch (a +-50 ppm clock moves 1.5 ms in 30 s)"
+  clock_block_s:
+    value: 2.0
+    label: assumption
+    source: "Step 2 brief §5.3: lower envelope of host minus pod time = the minimum per block of 2 pod seconds (64 sends), then a line through the block minima"
+  box_sigma_deg:
+    value: 2.0
+    label: assumption
+    source: "Step 2 brief §5.7: the estimator's belief about each pod's box-slot heading error; kappa0 = 1/sigma_pair^2 with sigma_pair = sqrt(2)·box_sigma. Not read from error_model.box_slot_deg (the simulator's truth)"
+  drift_q_rad2_per_s:
+    value: 1.0e-5
+    label: assumption
+    source: "Step 2 brief §5.7: heading diffusion of a joint's relative heading, rad^2/s: 1.4 deg after 1 min, 4.4 deg after 10 min, 7.7 deg after 30 min (the order of Step 1's O1 errors, docs/RESULTS_STEP1.md Table 1); to be fitted on validation"
+  kappa_hold:
+    value: 33.0
+    label: assumption
+    source: "Step 2 brief §5.7 hold rule: 'uncertain' while kappa < kappa_hold; 33 = 1/(10 deg)^2 in rad; to be fitted on validation"
+  kappa_scale:
+    hinge:
+      value: 1.0
+      label: assumption
+      source: "Step 2 brief §5.4: one scale factor per joint type multiplies every window's kappa (residuals are correlated in time); 1 until fitted on validation"
+    2dof:
+      value: 1.0
+      label: assumption
+      source: "Step 2 brief §5.4, §5.5: kappa scale for 2-DoF windows; 1 until fitted on validation"
+    3dof:
+      value: 1.0
+      label: assumption
+      source: "Step 2 brief §5.4, §5.6: kappa scale for range-of-motion windows; 1 until fitted on validation"

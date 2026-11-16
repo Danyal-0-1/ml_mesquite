@@ -2,7 +2,7 @@
 
     simulate   --config configs/default.yaml --seed 1 [--motion synthetic:walk:20 | path.npz] [--preset NAME]
                [--set key=value ...] [--out DIR]
-    baselines  --run DIR                        decode with Step 0, score B0, B1, O1, O2, write results/
+    baselines  --run DIR [--methods B0 B1 GEO-K GEO-ID ...]   decode with Step 0, score the methods, write results/
     params     [--config FILE] [--label assumption]   every parameter with its value, label and source
     split      [--write] [--force]              split AMASS subjects 70/15/15 -> manifests/split_manifest.csv
     dataset    --seed 1 [--source synthetic|amass] [--set ...]   simulate a dataset into a run folder and score it
@@ -42,9 +42,15 @@ def cmd_simulate(args) -> int:
 
 
 def cmd_baselines(args) -> int:
+    from .evaluate import BASELINES, METHODS
     from .pipeline import score_run
 
-    summary = score_run(Path(args.run))
+    methods = BASELINES if not args.methods else (METHODS if args.methods == ["all"] else tuple(args.methods))
+    unknown = set(methods) - set(METHODS)
+    if unknown:
+        print(f"unknown methods {sorted(unknown)}; known: {', '.join(METHODS)}")
+        return 1
+    summary = score_run(Path(args.run), baselines=methods)
     rows = summary[summary["joint_name"] == "all"]
     print(rows.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
     print(f"results in {Path(args.run) / 'results'}")
@@ -57,7 +63,8 @@ def cmd_params(args) -> int:
     width = max(len(k) for k, *_ in rows)
     for key, value, label, source in rows:
         print(f"{key:<{width}}  {str(value):<18} {label:<10} {source}")
-    labels = ("datasheet", "firmware", "assumption", "measured")
+    from .config import LABELS as labels
+
     counts = {lab: sum(1 for r in cfg.table() if r[2] == lab) for lab in labels}
     print(f"\n{len(cfg.table())} parameters: " + ", ".join(f"{v} {k}" for k, v in counts.items()))
     return 0
@@ -160,13 +167,14 @@ def main(argv=None) -> int:
     s.add_argument("--out", help="run folder (default: named after commit, config hash and seed)")
     s.set_defaults(fn=cmd_simulate)
 
-    b = sub.add_parser("baselines", help="decode and score a run")
+    b = sub.add_parser("baselines", help="decode and score a run (Step 1 baselines and Step 2 estimators)")
     b.add_argument("--run", required=True)
+    b.add_argument("--methods", nargs="+", help="methods to score (default B0 B1 O1 O2; 'all' for every method)")
     b.set_defaults(fn=cmd_baselines)
 
     pa = sub.add_parser("params", help="list every parameter with its label and source")
     pa.add_argument("--config", default=str(DEFAULT_CONFIG))
-    pa.add_argument("--label", choices=["datasheet", "firmware", "assumption", "measured"])
+    pa.add_argument("--label", choices=["datasheet", "firmware", "assumption", "measured", "fitted"])
     pa.set_defaults(fn=cmd_params)
 
     sp = sub.add_parser("split", help="assign AMASS subjects to train/val/test")

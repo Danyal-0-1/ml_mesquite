@@ -25,7 +25,9 @@ import yaml
 
 __all__ = ["LABELS", "Config", "load_config", "parse_override"]
 
-LABELS = ("datasheet", "firmware", "assumption", "measured")
+LABELS = ("datasheet", "firmware", "assumption", "measured", "fitted")
+"""``fitted``: estimated on the training or validation split by a named command, never on test data (Step 2
+brief rule 6). The source note names the command, the data and the split."""
 
 
 def _is_leaf(node: Any) -> bool:
@@ -96,6 +98,25 @@ class Config:
         for key, val in overrides.items():
             new._node(key)["value"] = val
         new.validate()
+        return new
+
+    def section(self, name: str) -> Config:
+        """A config holding only the group ``name`` (keys keep their full dotted form, e.g. ``geometry.window_s``).
+
+        The Step 2 estimators receive ``cfg.section("geometry")``: reading the simulator's ``error_model`` (the
+        truth) from inside an estimator then raises ``KeyError`` instead of silently using it (brief rule 8).
+        """
+        if name not in self.tree or _is_leaf(self.tree[name]) or not isinstance(self.tree[name], dict):
+            raise KeyError(f"no config group '{name}'")
+        new = Config.__new__(Config)
+        new.tree, new.source_path = {name: copy.deepcopy(self.tree[name])}, self.source_path
+        return new
+
+    def without(self, name: str) -> Config:
+        """A copy without the group ``name`` (the simulator's identity does not depend on ``geometry``)."""
+        new = Config.__new__(Config)
+        new.tree = {k: copy.deepcopy(v) for k, v in self.tree.items() if k != name}
+        new.source_path = self.source_path
         return new
 
     def with_preset(self, name: str) -> Config:
