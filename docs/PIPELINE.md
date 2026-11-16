@@ -1,6 +1,6 @@
 # Pipeline
 
-*Status: S2-M1. Every stage, from one session to a dataset of sessions and the results tables; Step 2's estimator stage (§7) is being built.*
+*Status: S2-M3. Every stage, from one session to a dataset of sessions and the results tables; Step 2's estimator stage (§7) has its solvers; the filter's fitted beliefs come in S2-M4.*
 
 ## Picture first
 
@@ -27,6 +27,7 @@ frames.parquet + session.json ─► STEP 0 ─► series.parquet ─► baselin
 | split AMASS subjects | `python -m mesqsim split --write` | `manifests/split_manifest.csv` and `.sha256` |
 | simulate and score a dataset | `python -m mesqsim dataset --seed 1 --source amass\|synthetic` | run folder with `sessions/`, `dataset.csv`, `results/` |
 | results tables and figures | `python scripts/make_results.py` | `docs/RESULTS_STEP1.md`, `docs/figures/results_*.png` |
+| fit the range-of-motion boxes (train only) | `python -m mesqsim fit-geometry rom --source amass --write` | `geometry.rom_limits_deg.<joint>` in `configs/default.yaml`, label `fitted` |
 | list runs | `python -m mesqsim list-runs` | |
 | delete runs | `python -m mesqsim clean --run <folder>` or `clean --all --yes` | |
 
@@ -162,8 +163,10 @@ Code: `mesqsim/evaluate.py`, `mesqsim/pipeline.py`.
   1. fresh, valid samples per pod; for each pod and boot epoch a causal clock map t_host ≈ α + β·t_pod (lower
      envelope; [MATH.md §9](MATH.md));
   2. events in host time: the box-registration start at the end of the box phase; a reset of a joint whenever
-     one of its pods starts a new boot epoch; a window every `geometry.step_s` (from the T-pose on, never inside
-     an unrecorded phase) solving each joint over the last `geometry.window_s` of parent/child pairs;
+     one of its pods starts a new boot epoch; a window every `geometry.step_s` (from the motion phase on, never
+     inside an unrecorded phase) solving each joint over the last `geometry.window_s` of parent/child pairs with the
+     solver of its type: the hinge closed form (knees), the 2-DoF constraint (GEO-K) or the range-of-motion cost
+     (GEO-K at 3-DoF joints; GEO-ID at 2-DoF and 3-DoF joints, in T-pose frames once the facing is known);
   3. the per-joint von Mises filter, read out at the query times.
 - **Methods** (`evaluate.METHODS`): B0, B1, O1, O2; GEO-K (uses simulator truth), GEO-ID, and the ablations
   GEO-ID-nofilter, GEO-ID-hinge, GEO-ID-w4, GEO-ID-w16.

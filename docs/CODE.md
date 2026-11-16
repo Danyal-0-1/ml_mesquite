@@ -1,6 +1,6 @@
 # Code index
 
-*Status: S2-M1 (Step 2: the estimator contract, the common clock, the GEO framework). Updated at every milestone.*
+*Status: S2-M3 (Step 2: contract, clock, GEO framework, hinge, 2-DoF and range-of-motion solvers). Updated at every milestone.*
 
 ## How the modules connect
 
@@ -17,8 +17,14 @@ estimators/ ◄── evaluate (GEO-K, GEO-ID and ablations; reads Step 0's seri
    contract   Estimate(delta_rad, kappa, uncertain); GeoTruth (GEO-K's one truth argument)
    clock      fresh samples, causal pod->host clock map (lower envelope), pairs, rotation rates
    vmfilter   per-joint von Mises filter: init (box), predict, update (window), reset (reboot)
-   geo        events (box init, reboot resets, windows every step_s), solvers per joint type, query outputs
+   geo        events (box init, reboot resets, windows every step_s), solvers per joint type, query outputs,
+              GEO-ID's identified axes, sign votes, facing from the knees and T-pose frames
+   anatomy    knee hinge axis, 2-DoF axis pairs, one Cardan sequence per joint (SMPL segment frames)
+   hinge      closed form and its von Mises kappa; axis identification from rates; relative-sign votes
+   twodof     the 2-DoF constraint as a trigonometric polynomial; Laplace kappa; two-minima rule
+   rom        range-of-motion cost in fast form; moment-matched kappa; Omega percentiles
 geo_score   ◄── validation, scripts (scorer-side Step 2 diagnostics; may read labels): pair timing, truncation
+geo_fit     ◄── cli fit-geometry (fits on train/validation only; reads truth; writes `fitted` values into the config)
 io, runs    ◄── pipeline, cli (session folders, run identity)
 splits      ◄── dataset, cli split, validation 9.x
 dataset     ◄── cli dataset, scripts/make_results.py (many sessions, each in its sequence's split)
@@ -61,7 +67,12 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [mesqsim/estimators/clock.py](../mesqsim/estimators/clock.py) | fresh samples per pod, the causal pod-to-host clock map (lower envelope), parent/child pairs (slerp), body rotation rates |
 | [mesqsim/estimators/vmfilter.py](../mesqsim/estimators/vmfilter.py) | the per-joint von Mises filter (init, predict, update, reset; outputs at query times) |
 | [mesqsim/estimators/geo.py](../mesqsim/estimators/geo.py) | GEO-K and GEO-ID: box initialisation, reboot resets, windows every `step_s`, solver dispatch per joint type, hold flag, ablation switches |
+| [mesqsim/estimators/anatomy.py](../mesqsim/estimators/anatomy.py) | anatomical joint models in SMPL segment frames: knee hinge axis, 2-DoF axis pairs, one Cardan sequence per joint |
+| [mesqsim/estimators/hinge.py](../mesqsim/estimators/hinge.py) | hinge closed form and von Mises kappa, blind spot; axis identification from body rates (Seel et al. 2014); vertical and T-pose sign votes |
+| [mesqsim/estimators/twodof.py](../mesqsim/estimators/twodof.py) | the 2-DoF constraint (Laidig et al. 2019) as a degree-2 trigonometric polynomial; Laplace kappa; two-minima ambiguity rule |
+| [mesqsim/estimators/rom.py](../mesqsim/estimators/rom.py) | range-of-motion cost (Lehmann et al. 2020) in fast form over a 1° grid; moment-matched kappa; true joint angles; Omega percentiles |
 | [mesqsim/geo_score.py](../mesqsim/geo_score.py) | scorer-side Step 2 diagnostics (reads labels): pair timing errors, recordings cut at a host time |
+| [mesqsim/geo_fit.py](../mesqsim/geo_fit.py) | fitting on train/validation only (reads truth): Omega per joint from the training subjects' true angles; knee and third-axis RMS |
 | [mesqsim/io.py](../mesqsim/io.py) | deterministic Parquet and JSON; the frames-table schema; session folders |
 | [mesqsim/runs.py](../mesqsim/runs.py) | run identity (commit, config hash, seed), run folders, listing and deleting |
 | [mesqsim/pipeline.py](../mesqsim/pipeline.py) | simulate a run, score a run (motion-phase errors, split and motion start attached), summaries |
@@ -80,7 +91,7 @@ validation  ◄── scripts/validate.py, tests/test_validation.py
 | [manifests/](../manifests/) | committed manifests: path, size, SHA-256 of every data file (data itself never committed) |
 | [scripts/validate.py](../scripts/validate.py) | runs every check and rewrites [VALIDATION.md](VALIDATION.md) |
 | [scripts/check_all.sh](../scripts/check_all.sh) | the full check: ruff, pytest, validation |
-| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_sim_full.py` (error-model units: Θ, η, loss, reboots, box registration, T-pose snapshot), `test_step0.py` (Step 0 on hand-built frames), `test_splits.py` (9: splits, manifest, dataset), `test_repo_hygiene.py` (rule 3), `test_validation.py` (every registered check, ids `check_<n>_<m>`); Step 2: `test_conventions_step2.py` (Cardan angles, von Mises helpers), `test_clock.py` (clock map, pairs, rates), `test_geo_contract.py` (causality, determinism, label blindness, own beliefs, pair timing); `conftest.py` skips data tests when data are absent |
+| [tests/](../tests/) | `test_codec.py` (check 1), `test_conventions.py` (2), `test_correction.py` (3, 4), `test_amass.py` (10), `test_diodem.py` (11), `test_sim_slice.py` (5, 7, 8: the M3 slice), `test_sim_full.py` (error-model units: Θ, η, loss, reboots, box registration, T-pose snapshot), `test_step0.py` (Step 0 on hand-built frames), `test_splits.py` (9: splits, manifest, dataset), `test_repo_hygiene.py` (rule 3), `test_validation.py` (every registered check, ids `check_<n>_<m>`); Step 2: `test_conventions_step2.py` (Cardan angles, von Mises helpers), `test_clock.py` (clock map, pairs, rates), `test_geo_contract.py` (causality, determinism, label blindness, own beliefs, pair timing), `test_hinge.py` (closed form, worked example, blind spot, likelihood, identification, sign votes), `test_twodof_rom.py` (2-DoF exact recovery and ambiguity, range-of-motion fast form, limits, flat inside), `test_config_write.py` (fitted values written in place); `conftest.py` skips data tests when data are absent |
 | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | CI: ruff, the synthetic tests and quick validation on every push and pull request |
 
 ## Where to extend
