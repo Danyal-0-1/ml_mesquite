@@ -95,6 +95,10 @@ def main() -> int:
     if not manifests:
         print("  no manifests yet")
     for man in manifests:
+        header = man.read_text(encoding="utf-8").split("\n", 1)[0].split(",")
+        if "sha256" not in header:  # e.g. split_manifest.csv: split assignments, not data files to verify
+            print(f"  {man.stem}: not a file manifest (no sha256 column); skipped")
+            continue
         results = verify_manifest(man, data_dir(), hash_files=not args.fast)
         counts: dict[str, int] = {}
         for path, status, detail in results:

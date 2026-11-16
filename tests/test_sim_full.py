@@ -121,3 +121,17 @@ def test_aligned_report_heading_is_zero_at_start_up():
     first = d.labels_ticks.groupby("pod_id").head(1)
     q = quat_mul(yaw_quat(-first["psi_rad"].to_numpy()), first[["pod_qx", "pod_qy", "pod_qz", "pod_qw"]].to_numpy())
     assert np.rad2deg(np.max(np.abs(heading_rad(q)))) < 1e-9
+
+
+def test_two_reboots_in_the_unrecorded_idle_look_like_one():
+    """The host cannot count reboots it did not record: labels number epochs as Step 0 sees them."""
+    def hook(plan):
+        plan.pods[1].reboots_s = [200.0, 400.0]  # both inside a 10-minute idle
+
+    cfg = CFG.with_preset("offsets_only").with_overrides({"session.idle_s": 600.0})
+    d = simulate_session(cfg, 2, MotionSource.from_spec("synthetic:walk:10"), plan_hook=hook)
+    series = step0.decode(d.frames, d.session)
+    m = series.merge(d.labels_ticks, on=["pod_id", "epoch", "tick"], how="outer", indicator=True)
+    assert (m["_merge"] == "both").all()
+    pod1 = d.labels_ticks[d.labels_ticks["pod_id"] == 1]
+    assert pod1["epoch"].max() == 1 and pod1["boot_epoch"].max() == 2

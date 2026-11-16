@@ -1,0 +1,4 @@
+path,size_bytes,sha256,note
+body_models/smplh/female/model.npz,87259106,fc10da26f7fc1d5a913c1fba57ed67a84ab9c55e5391c653c983d57acf1a39d2,
+body_models/smplh/male/model.npz,87259106,be42bff1ff0589cf0467893bcfbbeb3f9b533ba151031c8cdfb64ca1dcb34947,
+body_models/smplh/neutral/model.npz,87259106,a60a7e29d33f09ef1a6352907e2f485e161f471330ca40592764374063e751df,

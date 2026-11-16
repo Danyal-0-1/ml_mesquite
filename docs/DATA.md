@@ -1,8 +1,9 @@
 # Data
 
-*Status: M5. AMASS and SMPL+H instructions written; AMASS **not downloaded yet** (waiting on the collaborator's
-registration). DIODEM downloaded and verified. The split tool is ready; the AMASS split manifest waits for the
-download.*
+*Status: S2-M0 (2026-11-13). AMASS downloaded (HumanEva, BMLmovi, CMU, KIT; SMPL+H G), verified and split; the
+split waits for Danyal to freeze it. SMPL+H body model (extended, 16 shape parameters) downloaded and verified on
+2026-11-14. DIODEM downloaded and verified. `python scripts/check_env.py --require amass_archives amass_files smplh
+diodem` passes.*
 
 ## Picture first
 
@@ -57,6 +58,33 @@ ICCV 2019. Site: <https://amass.is.tue.mpg.de>.
 | end-to-end slice (M3) | one **small** subset that contains walking, e.g. HumanEva or SFU (check sizes on the page) | fast to download and process; enough to prove the pipeline |
 | simulation datasets (M5) | **CMU**, **KIT** and **BMLmovi** (the brief's examples) | together they cover walking straight and in circles, turning, bending, reaching, sitting down and standing still; check sizes first |
 | never for training | **TotalCapture** | may form a later test set (brief §5.1). `verify_amass.py` flags it; the split tool will exclude it from training |
+
+**Downloaded on 2026-11-13** (the collaborator's own AMASS account; the proposal above, with HumanEva as the small
+walking subset; TotalCapture, 83,967,231 bytes, and SFU, 62,318,066 bytes, not downloaded). Sizes are those the
+download server reported before downloading and match the files; SHA-256 in `manifests/amass_archives.csv`.
+
+| subset (SMPL+H G) | archive bytes | motion files | subjects | frame rate | median length |
+|---|---|---|---|---|---|
+| HumanEva | 33,071,034 | 28 | 3 | 120 Hz | 17.5 s |
+| BMLmovi | 748,793,904 | 1,801 | 86 | 120 Hz | 4.6 s |
+| CMU | 1,993,171,135 | 2,082 | 102 | 120 Hz (60 Hz for 495 files) | 9.6 s |
+| KIT | 2,196,810,275 | 4,232 | 55 | 100 Hz | 6.1 s |
+| **total** | 4,971,846,348 | 8,143 (11.71 GB extracted) | 246 | | 23.2 h of motion |
+
+Sources: `python scripts/verify_amass.py` (files, frame rates, 0 load failures), `python -m mesqsim split`
+(subjects), and a scratch count of `trans` frames / `mocap_framerate` per file (lengths).
+
+**SMPL+H body model, downloaded on 2026-11-14** (the collaborator's own MANO account): the "Extended SMPL+H model",
+`smplh.tar.xz`, 113,231,292 bytes (the size the server reported), SHA-256
+`46d5b8687be48c91181fa88271feff3a5e83aa62a481fad8a0bcb9254b2a74f1`, kept in `$MESQ_DATA_DIR/body_models/archives/`.
+It holds `female/`, `male/` and `neutral/model.npz` (87,259,106 bytes each; SHA-256 in `manifests/smplh.csv`), a
+licence and an `info.txt`: gender-specific models with 16 shape parameters, made for AMASS.
+
+**Only 767 of the 8,143 sequences are at least 20 s long**, the default `dataset.window_s` (an `assumption`). With it,
+BMLmovi contributes 2 windows and KIT 397, against CMU's 756: the simulated sessions are mostly CMU and KIT, and the
+everyday actions of BMLmovi (short single actions) are almost absent. Shorter windows, or concatenating one
+subject's sequences (brief §4.3, an optional variant), would change this. **Danyal decides**; the Step 1 results on
+AMASS use the default until then.
 
 ### 1.3 Format
 
@@ -194,8 +222,15 @@ Observation, recorded only (arm exp01, all 13 motions, 6.13 min; numbers from ch
   `manifests/split_manifest.sha256`.
 - **Freezing.** Once the hash file exists, the manifest is frozen: `split --write` refuses to replace it with a
   different one (`--force` overrides, and needs Danyal's approval), and check 9.2 fails if the file changes.
-- **Status:** not yet written (AMASS not downloaded). After the download: run `split --write`, record the SHA-256 in
-  `WORKLOG.md`, and Danyal approves and freezes it before Step 2.
+- **Status:** written on 2026-11-13 by `python -m mesqsim split --write`; SHA-256
+  `d36448adb76762251668b9940933e8a14df664ad6d3277fe3a930f7d55049fb3` (also checked with `sha256sum`). **Danyal
+  approves and freezes it** before Step 2 results are read.
+
+  | split | subjects | sequences | 20 s windows (≤ 3 per sequence) |
+  |---|---|---|---|
+  | train | 173 (BMLmovi 60, CMU 72, HumanEva 2, KIT 39) | 5,974 | 884 |
+  | val | 37 (13, 15, 1, 8) | 1,104 | 110 |
+  | test | 36 (13, 15, 0, 8) | 1,065 | 173 |
 - **Provisional results without AMASS** use synthetic stand-in sequences (`dataset.synthetic_sources`: walking,
   turning in a circle, standing; four pseudo-subjects each), split by the same rules.
 

@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,10 +45,32 @@ KEY_PARAMS = (
 )  # fmt: skip
 
 
-def scored_run(cfg, seed, sources, fresh: bool, log) -> tuple[Path, pd.DataFrame]:
-    folder = run_folder(git_commit(), cfg.hash(), seed)
+def runs_commit(arg: str | None) -> str:
+    """The commit whose run folders hold the simulated and scored sessions: HEAD (with +dirty) by default.
+
+    ``--runs-commit C`` reuses the runs made at an earlier commit C. It is allowed only when nothing that simulates
+    or scores (``mesqsim/``, ``configs/``) differs between C and the working tree, so C's runs are exactly what the
+    current code would produce (check 8.1) and only the reporting changed. It never simulates under C's name.
+    """
+    if arg is None:
+        return git_commit()
+    git = ["git", "-C", str(ROOT)]
+    full = subprocess.run([*git, "rev-parse", "--verify", f"{arg}^{{commit}}"], capture_output=True, text=True,
+                          check=True).stdout.strip()  # fmt: skip
+    changed = subprocess.run([*git, "diff", "--quiet", full, "--", "mesqsim", "configs"]).returncode != 0
+    untracked = subprocess.run([*git, "ls-files", "--others", "--exclude-standard", "--", "mesqsim", "configs"],
+                               capture_output=True, text=True, check=True).stdout.strip()  # fmt: skip
+    if changed or untracked:
+        raise SystemExit(f"--runs-commit {arg}: mesqsim/ or configs/ differ from that commit; run without it")
+    return full
+
+
+def scored_run(cfg, seed, sources, fresh: bool, log, run_commit: str, reuse_only: bool) -> tuple[Path, pd.DataFrame]:
+    folder = run_folder(run_commit, cfg.hash(), seed)
     done = folder / "results" / "errors.parquet"
     if fresh or not done.is_file():
+        if reuse_only:
+            raise SystemExit(f"--runs-commit: no scored run {folder.name}; run without --runs-commit")
         generate(cfg, seed, sources, out_dir=folder, log=lambda s: None)
         score_run(folder)
         log(f"  simulated and scored {folder.name}")
@@ -67,8 +91,13 @@ def main() -> int:
     ap.add_argument("--max-sequences", type=int, default=None, help="AMASS: cap on the number of sequences")
     ap.add_argument("--no-sweeps", action="store_true")
     ap.add_argument("--fresh", action="store_true", help="regenerate even if scored runs exist")
+    ap.add_argument("--runs-commit", default=None,
+                    help="reuse the scored runs made at this earlier commit (only if mesqsim/ and configs/ are "
+                         "unchanged since); simulates nothing")  # fmt: skip
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if args.runs_commit and args.fresh:
+        ap.error("--runs-commit reuses runs; it cannot be combined with --fresh")
 
     source = args.source or ("amass" if SPLIT_MANIFEST.is_file() else "synthetic")
     sources = amass_sources(SPLIT_MANIFEST) if source == "amass" else synthetic_sources(args.subjects_per_kind)
@@ -76,11 +105,16 @@ def main() -> int:
         sources = sources.sort_values("path").head(args.max_sequences)
     cfg = load_config(ROOT / "configs" / "default.yaml")
     commit = git_commit()
-    print(f"source: {source}, {len(sources)} sequences; commit {commit[:12]}; config {cfg.hash()[:8]}; "
-          f"seed {args.seed}")
+    run_commit = runs_commit(args.runs_commit)
+    reuse_only = args.runs_commit is not None
+    print(f"source: {source}, {len(sources)} sequences; commit {commit[:12]}; runs from {run_commit[:12]}; "
+          f"config {cfg.hash()[:8]}; seed {args.seed}")
+
+    def scored(c):
+        return scored_run(c, args.seed, sources, args.fresh, print, run_commit, reuse_only)
 
     print("default dataset")
-    folder, errors = scored_run(cfg, args.seed, sources, args.fresh, print)
+    folder, errors = scored(cfg)
     overall = results.overall_table(errors)
     secondary = results.overall_table(errors, "err_orient_deg")
     by_type = results.joint_type_table(errors)
@@ -88,37 +122,43 @@ def main() -> int:
     out_res = folder / "results"
     for name, df in (("overall", overall), ("secondary", secondary), ("joint_type", by_type), ("joint", by_joint)):
         df.to_csv(out_res / f"table_{name}.csv", index=False, float_format="%.6g", lineterminator="\n")
-    dataset = pd.read_csv(folder / "dataset.csv")
+    dataset = pd.read_csv(folder / "dataset.csv", dtype={"subject": str})
+    # On AMASS an error table holds about 10^8 rows (125.7 M for the default dataset, 27.5 M per sweep value).
+    # Keep only the summaries: holding every sweep's full table ran a 64 GB machine out of memory on 2026-11-14.
+    del errors
 
-    sweep_rows, sweep_runs = {}, []
+    sweep_parts, sweep_runs = [], []
     if not args.no_sweeps:
         base = cfg.with_overrides({"dataset.motion_start_min": [10], "dataset.windows_per_sequence": 1})
         for p in results.SWEEP_PARAMS:
             for v in cfg.param(p)["sweep"]:
                 print(f"sweep {p} = {v}")
-                f, e = scored_run(base.with_overrides({p: v}), args.seed, sources, args.fresh, print)
-                sweep_rows[(p, v)] = e
+                f, e = scored(base.with_overrides({p: v}))
+                sweep_parts.append(results.sweep_table({(p, v): e}))
+                del e
                 sweep_runs.append(f.name)
-        sweeps = results.sweep_table(sweep_rows)
+        sweeps = pd.concat(sweep_parts, ignore_index=True)
         sweeps.to_csv(out_res / "table_sweeps.csv", index=False, float_format="%.6g", lineterminator="\n")
 
     figs = ROOT / "docs" / "figures"
     label = "SYNTHETIC motion (not AMASS)" if source == "synthetic" else "AMASS motion"
     results.fig_growth(overall, f"Relative-heading error vs time since boot: {label}, default parameters",
                        figs / "results_growth.png")  # fmt: skip
-    if sweep_rows:
+    if sweep_parts:
         results.fig_sweeps(sweeps, f"One-at-a-time sweeps, motion at 10 min since boot: {label}",
                            figs / "results_sweeps.png")  # fmt: skip
 
-    write_markdown(source, cfg, commit, args, folder, dataset, overall, secondary, by_type,
-                   sweeps if sweep_rows else None, sweep_runs)  # fmt: skip
+    write_markdown(source, cfg, commit, run_commit, args, folder, dataset, overall, secondary, by_type,
+                   sweeps if sweep_parts else None, sweep_runs)  # fmt: skip
     print("wrote docs/RESULTS_STEP1.md")
     return 0
 
 
-def write_markdown(source, cfg, commit, args, folder, dataset, overall, secondary, by_type, sweeps, sweep_runs):
+def write_markdown(source, cfg, commit, run_commit, args, folder, dataset, overall, secondary, by_type, sweeps,
+                   sweep_runs):  # fmt: skip
     date = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M UTC")
     synthetic = source == "synthetic"
+    labels = Counter(node["label"] for _, node in cfg.leaves())
     lines = ["# Step 1 results: baselines B0, B1, O1, O2", ""]
     if synthetic:
         lines += [
@@ -129,11 +169,25 @@ def write_markdown(source, cfg, commit, args, folder, dataset, overall, secondar
             "> `python scripts/make_results.py` after the AMASS download to replace them.",
             "",
         ]
+    else:
+        sha = SPLIT_MANIFEST.with_suffix(".sha256")
+        digest = sha.read_text(encoding="utf-8").split()[0] if sha.is_file() else "not written"
+        lines += [
+            f"> **AMASS motion, assumed parameters.** {labels.get('assumption', 0)} of the {sum(labels.values())} "
+            "parameters are assumptions until the bench measures them",
+            "> (`python -m mesqsim params`), so these numbers describe the configured model of the suit, not the",
+            f"> real suit. Split manifest SHA-256 `{digest}`.",
+            "",
+        ]
+    flags = f"--source {source} --seed {args.seed}" + (f" --runs-commit {run_commit[:7]}" if args.runs_commit else "")
+    run_line = f"commit `{commit[:12]}`"
+    if run_commit != commit:
+        run_line = (f"runs simulated and scored at commit `{run_commit[:12]}` (mesqsim/ and configs/ unchanged since), "
+                    f"report written at commit `{commit[:12]}`")  # fmt: skip
     lines += [
-        "*Generated by `python scripts/make_results.py` "
-        f"(`--source {source} --seed {args.seed}`). Do not edit by hand.*",
+        f"*Generated by `python scripts/make_results.py` (`{flags}`). Do not edit by hand.*",
         "",
-        f"**Run:** {date}; commit `{commit[:12]}`; config hash `{cfg.hash()[:12]}`; seed {args.seed}; default run "
+        f"**Run:** {date}; {run_line}; config hash `{cfg.hash()[:12]}`; seed {args.seed}; default run "
         f"folder `{folder.name}`.",
         "",
         "## Picture first",
@@ -160,15 +214,28 @@ def write_markdown(source, cfg, commit, args, folder, dataset, overall, secondar
     for k in KEY_PARAMS:
         prm = cfg.param(k)
         lines.append(f"| `{k}` | {prm['value']} | {prm['label']} |")
-    n_seq = dataset["source"].nunique()
+    # A sequence is (subset, subject, file name): KIT reuses file names such as walking_slow01_poses.npz across
+    # subjects. A subject is (subset, subject id): CMU and KIT reuse ids for different people.
+    ds = dataset.astype({"subject": str})
+    seqs = ds.drop_duplicates(["subset", "subject", "source"])
+    subjects = ds.drop_duplicates(["subset", "subject"])
+    per_split = ", ".join(f"{k} {n} / {subjects['split'].value_counts().get(k, 0)}"
+                          for k, n in seqs["split"].value_counts().sort_index().items())  # fmt: skip
+    if synthetic:
+        unit = ("Steps within a session are strongly correlated, so the independent unit is the **session** (column "
+                "`sessions`): differences between baselines smaller than a few tenths of a degree are within sampling "
+                "noise.")  # fmt: skip
+    else:
+        unit = ("Steps within a session are strongly correlated, and sessions of one subject share that person's "
+                "motion, so the independent unit is the **subject**; the `sessions` column counts sessions, not "
+                "independent observations. Step 1 computes no intervals; the Step 2 analysis plan bootstraps over "
+                "subjects.")  # fmt: skip
     lines += [
         "",
-        f"**Data:** {len(dataset)} sessions from {n_seq} source sequences ({source}), splits "
-        + ", ".join(f"{k} {v}" for k, v in dataset.groupby("split")["source"].nunique().items())
-        + " (sequences). Baselines have no fitted parameters, so every split is scored; nothing is trained in "
-        "Step 1. Errors are over the motion phase, all 14 joints, every 32 Hz step. Steps within a session are "
-        "strongly correlated, so the independent unit is the **session** (column `sessions`): differences between "
-        "baselines smaller than a few tenths of a degree are within sampling noise.",
+        f"**Data:** {len(ds)} sessions from {len(seqs)} source sequences of {len(subjects)} subjects ({source}); "
+        f"per split, sequences / subjects: {per_split}. Baselines have no fitted parameters, so every split is "
+        "scored; nothing is trained in Step 1. Errors are over the motion phase, all 14 joints, every 32 Hz step. "
+        + unit,
         "",
         "## Table 1: primary metric, relative-heading error |wrap(δ̂ − δ)| (degrees)",
         "",
@@ -194,6 +261,8 @@ def write_markdown(source, cfg, commit, args, folder, dataset, overall, secondar
         sw["cell"] = [f"{a:.2f} / {b:.2f}" for a, b in zip(sw["mean"], sw["p95"], strict=True)]
         wide = sw.pivot_table(index=["parameter", "value"], columns="baseline", values="cell", aggfunc="first",
                               sort=False).reset_index()  # fmt: skip
+        # swept values as written in the config: with the table's ".2f", a loss of 0.005 printed as "0.01"
+        wide["value"] = [v if isinstance(v, str) else f"{v:g}" for v in wide["value"]]
         lines += [
             "## Table 4: one-at-a-time sweeps (mean / P95 of the primary metric, degrees)",
             "",

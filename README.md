@@ -1,5 +1,9 @@
-# Mesquite ML, Step 1: data, environment, simulator
+# Mesquite ML: Step 1 (data, environment, simulator) and Step 2 (geometric estimator)
 
+Research repository for Danyal Khorami's Mesquite project. It is public by Danyal's choice (2026-11-12); licensed
+data never enter it. The specifications are [docs/brief/STEP1_BRIEF.md](docs/brief/STEP1_BRIEF.md) (done) and
+[docs/brief/STEP2_BRIEF.md](docs/brief/STEP2_BRIEF.md) (in progress); the rules for every work session are in
+[CLAUDE.md](CLAUDE.md). **New here? Read [docs/MUST_KNOW.md](docs/MUST_KNOW.md) first.**
 
 ## The whole project in one picture
 
@@ -53,42 +57,54 @@ tables and figures for the four baselines.
 
 | milestone | content | state |
 |---|---|---|
-| M1 | skeleton, environment, conventions, wire codec, CI | done on branch `m1-skeleton` (not pushed: repository is public) |
+| M1 | skeleton, environment, conventions, wire codec, CI | done on branch `m1-skeleton`; on GitHub through `s2-m0` |
 | M2 | data: AMASS/SMPL+H instructions, DIODEM download, manifests, loaders, mapping | done on branch `m2-data` except the AMASS-dependent checks, which wait for the AMASS download |
 | M3 | thin end-to-end slice (offsets only → frames → Step 0 → B0, O2) | done on branch `m3-slice` (synthetic motion; AMASS when downloaded) |
 | M4 | full simulator, configs, CLI | done on branch `m4-simulator` |
-| M5 | splits, dataset, baselines, first results | done on branch `m5-results`: machinery complete; results provisional on synthetic motion until AMASS |
-| M6 | complete documentation, report, tag `step1` | not started |
+| M5 | splits, dataset, baselines, first results | done on branch `m5-results`; work log written in S2-M0 |
+| M6 | complete documentation, report, tag `step1` | done in S2-M0 (branch `s2-m0`); tag `step1` after Danyal's approval |
+| S2-M0 | close Step 1: M5 work log, M6, AMASS download and split, results on AMASS | done; branch `s2-m0` pushed 2026-11-15, pull request into `main` waits for Danyal's approval; the split and analysis plan wait for his freeze |
+| S2-M1…M8 | the geometric estimator, its evaluation, the explanation pipeline | not started ([Step 2 brief](docs/brief/STEP2_BRIEF.md) §7) |
 
-## Quickstart (so far)
+## Quickstart: from a fresh clone to the Step 1 results
+
+Commands are for bash (on Windows, Git Bash). Each step says what it produces and how long it took on the
+collaborator's machine where that was measured.
 
 ```bash
 # 1. Python 3.11 environment (on the collaborator's machine: D:\mesquite_work\venv)
+git clone https://github.com/Danyal-0-1/ml_mesquite && cd ml_mesquite
 python3.11 -m venv .venv
 source .venv/bin/activate            # Windows Git Bash: source .venv/Scripts/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
-# 2. Optional: keep data and outputs elsewhere (defaults: ./data and ./outputs, both git-ignored)
+# 2. Optional: keep data and outputs outside the repository (defaults: ./data and ./outputs, both git-ignored)
 export MESQ_DATA_DIR=/path/to/data MESQ_OUTPUT_DIR=/path/to/outputs
 
-# 3. Data: DIODEM is scripted; AMASS and SMPL+H need your own registration (docs/DATA.md)
-python scripts/download_diodem.py
-python scripts/verify_amass.py        # after downloading AMASS archives by hand
+# 3. Data (docs/DATA.md)
+python scripts/download_diodem.py     # DIODEM: open licence, scripted
+#    AMASS and SMPL+H: register yourself at amass.is.tue.mpg.de and mano.is.tue.mpg.de, download the
+#    "SMPL+H G" archives into $MESQ_DATA_DIR/amass/archives/ (docs/DATA.md §1.1), then:
+python scripts/verify_amass.py        # hashes, extracts, indexes -> manifests/amass_*.csv
 
-# 4. Check the environment, then run the full check (ruff, tests, validation → docs/VALIDATION.md)
+# 4. Check the environment, then run the full check (ruff, tests, validation -> docs/VALIDATION.md)
 python scripts/check_env.py
-bash scripts/check_all.sh
+bash scripts/check_all.sh             # 5 min 19 s on 2026-11-13 (12 logical cores)
 python scripts/make_figures.py        # regenerates docs/figures
 
-# 5. Simulate one session and score it (see docs/SIMULATOR.md)
+# 5. Simulate one session and score it (docs/SIMULATOR.md)
 python -m mesqsim simulate --seed 1
 python -m mesqsim baselines --run "$MESQ_OUTPUT_DIR"/run_g*_s1
 
-# 6. The results: splits (after AMASS), then every table and figure from one command
-python -m mesqsim split --write
+# 6. The results: the split (once, after AMASS; Danyal freezes it), then every table and figure
+python -m mesqsim split --write       # -> manifests/split_manifest.csv and its SHA-256
 python scripts/make_results.py        # -> docs/RESULTS_STEP1.md
 ```
+
+**Where to read next:** [docs/MUST_KNOW.md](docs/MUST_KNOW.md) (what to understand before trusting a number),
+[docs/PIPELINE.md](docs/PIPELINE.md) (every stage and file format), [docs/MATH.md](docs/MATH.md),
+[docs/analysis_plan_DRAFT.md](docs/analysis_plan_DRAFT.md) (what will be tested, and how; for Danyal to freeze).
 
 ## Where things are
 
@@ -98,7 +114,7 @@ python scripts/make_results.py        # -> docs/RESULTS_STEP1.md
 | [tests/](tests/) | pytest suite; runs without licensed data |
 | [scripts/](scripts/) | `check_env.py`, `check_all.sh`, `validate.py`, `download_diodem.py`, `verify_amass.py`, `make_figures.py` |
 | [manifests/](manifests/) | name, size and SHA-256 of every data file |
-| [docs/](docs/) | PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1, figures; later MUST_KNOW |
+| [docs/](docs/) | MUST_KNOW, PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1, analysis_plan_DRAFT, figures; `brief/` holds both briefs |
 | [configs/](configs/) | `default.yaml` (every parameter, labelled), `presets.yaml` |
 | [WORKLOG.md](WORKLOG.md) | one entry per session or milestone: what changed, commands run, decisions |
 | `data/`, `outputs/` | git-ignored; licensed data and generated runs never enter git |

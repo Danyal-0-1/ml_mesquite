@@ -85,7 +85,8 @@ the host can know about (see "knowable ticks" in [MATH.md](MATH.md)).
 
 | column | meaning |
 |---|---|
-| `pod_id`, `epoch`, `tick`, `count` | identity of the send: boot epoch, sends since boot, wire counter |
+| `pod_id`, `epoch`, `tick`, `count` | identity of the send: **observed** boot epoch (boots that left at least one received frame, numbered as Step 0 sees them), sends since boot, wire counter |
+| `boot_epoch` | the true boot index (two reboots inside the unrecorded idle look like one to any logger) |
 | `phase` | phase at the send time |
 | `t_send_s`, `t_arrive_s`, `t_sample_s`, `t_decode_s` | true times, seconds since the first power-on |
 | `sample_index` | index of the chip sample sent |

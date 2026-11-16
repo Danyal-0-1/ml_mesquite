@@ -139,7 +139,11 @@ Per pod, in arrival order:
 
 1. **count → tick.** The host-time gap between two frames predicts the number of sends, E = Δt_host / 31.25 ms.
    The observed count difference is unwrapped by the number of 65,536-wraps closest to E, giving Δtick.
-   - If |Δtick − E| > 4 + 200 ppm · E, the pod **rebooted**: a new `epoch` starts with tick = count.
+   - If |Δtick − E| > 4 + 200 ppm · E, the pod **rebooted**: a new `epoch` starts with tick = count. Epochs count
+     the reboots the recording can see: a pod that reboots twice while nothing is recorded shows one jump. The labels
+     number epochs the same way and keep the true boot index in `boot_epoch`. This was found when a results sweep
+     with reboots crashed; tested by `test_two_reboots_in_the_unrecorded_idle_look_like_one`, and by 30 stress
+     sessions with 834 reboots and 0 mismatches.
    - Host time only resolves wraps and reboots. It is never a sample time.
 2. **ms_lo → ms_unwrapped.** Within an epoch, ms_lo is unwrapped by the number of wraps closest to Δtick·31.25 ms.
    The first frame of an epoch is placed by its tick (1000 ms + tick·31.25 ms; any error under 32 s is harmless).
