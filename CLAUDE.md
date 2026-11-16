@@ -58,7 +58,11 @@ sessions. Two briefs are the specification; read both before working, and never 
 ## Practicalities
 
 - Python 3.11. On the collaborator's machine the virtual environment is `D:\mesquite_work\venv` and the data and
-  outputs live in `D:\mesquite_work\data` and `D:\mesquite_work\outputs` (outside OneDrive).
+  outputs live in `D:\mesquite_work\data` and `D:\mesquite_work\outputs` (outside OneDrive). On Danyal's Mac the
+  environment is `.venv` (made with `uv`) and the data and outputs live next to the repository, in
+  `../mesquite_work/data` and `../mesquite_work/outputs` (set `MESQ_DATA_DIR` and `MESQ_OUTPUT_DIR`).
+- Stage files by explicit path (never `git add -A`): untracked local files may exist that must not be pushed.
+- Tags: `step1` = end of Step 1; `s2-m<n>` = each merged Step 2 milestone; `step2` = end of Step 2.
 - Run the full check with `bash scripts/check_all.sh`.
 - Radians inside the code, degrees in reports; put the unit in the variable name (`_rad`, `_deg`, `_s`, `_ms`).
 - `labels*.parquet` is simulation truth. Step 0 and every deployable estimator must never read it.
