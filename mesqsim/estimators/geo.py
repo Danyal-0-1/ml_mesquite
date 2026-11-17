@@ -499,8 +499,11 @@ class GeoEstimator:
         With a valid T-pose snapshot and box prior, the knee axis is tied to the T-pose (horizontal there, one line in
         both segments: :func:`identify_hinge_axes_tpose`, one unknown), then refined locally with all four angles and
         the refinement kept only if it stays within ``axis_tpose_tolerance_deg``. Without a T-pose (DIODEM), the free
-        four-angle fit. Either way the fit must stand out from the alternatives (contrast <= ``axis_contrast_max``):
-        when thigh and shin turn together, every axis fits and none is accepted.
+        four-angle fit. Either way the fit must stand out from the alternatives (its contrast at most
+        ``axis_tpose_contrast_max`` for the tied fit, ``axis_contrast_max`` for the free one): when thigh and shin turn
+        together, every axis fits and none is accepted. The tied fit has one unknown and the T-pose behind it, so it
+        may stand out less and still be right (AMASS validation, WORKLOG 2026-11-17); it must also show that a wrong
+        axis fits measurably badly (``spread`` at least ``axis_min_spread``), which a rigid motion never does.
         """
         jt = JOINTS[j]
         prev = self.state["axes"].get(j)
@@ -517,7 +520,8 @@ class GeoEstimator:
         tie = self._tpose_tie(j)
         if tie is not None:
             tied = identify_hinge_axes_tpose(wp, wc_at_p, *tie)
-            if tied.contrast > contrast_max:
+            if (tied.contrast > float(self.p["axis_tpose_contrast_max"])
+                    or tied.spread < float(self.p["axis_min_spread"])):  # fmt: skip
                 return prev
             ref = identify_hinge_axes(wp, wc_at_p, start=(tied.u_p, tied.u_c), n_starts=0)
             tol = np.deg2rad(float(self.p["axis_tpose_tolerance_deg"]))

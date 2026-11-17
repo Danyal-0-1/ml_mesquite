@@ -309,13 +309,22 @@ so the fit wanders. GEO-ID therefore uses the T-pose, as the suit's own calibrat
 and its axis horizontal (u_p ⊥ g_p, world up in the thigh pod frame) and one line in both segments, so with box
 registration's δ_T, u_c = q_c(T)⁻¹·Y(−δ_T)·q_p(T)·u_p. Only the azimuth of u_p is unknown: a 1° grid over [0°, 180°)
 and a golden-section refinement ([hinge.py](../mesqsim/estimators/hinge.py) `identify_hinge_axes_tpose`). A fit is
-accepted only if it stands out: its cost at most `geometry.axis_contrast_max` (0.25) × the median cost over the other
-azimuths (for the free fit, over 16 fixed probe axes); a rigid motion fails this. A local four-angle refinement then
-corrects T-pose posture error and is kept only within `geometry.axis_tpose_tolerance_deg` (15°) of the tied answer.
-The tie fixes the relative sign. Same 60 sessions: knee windows median 6.6°, P95 17.2°, none beyond 90°; axes a median
-5.8° (max 19.1°) from the truth; GEO-K, with the true axis, has median 5.2°, P95 14.1° (the SMPL knee is not an exact
-hinge). Only 804 of 2,400 knee windows had an identifiable axis: in non-walking sequences the estimator holds the
-box estimate instead of guessing. Without a T-pose (DIODEM) the free fit is used, with the same contrast test.
+accepted only if it stands out: its cost at most `geometry.axis_tpose_contrast_max` (0.8) × the median cost over the
+other azimuths (for the free fit, `geometry.axis_contrast_max` (0.25) × the median over 16 fixed probe axes); a rigid
+motion fails this. A local four-angle refinement then corrects T-pose posture error and is kept only within
+`geometry.axis_tpose_tolerance_deg` (15°) of the tied answer. The tie fixes the relative sign. Same 60 sessions (S2-M4,
+tied threshold 0.25): knee windows median 6.6°, P95 17.2°, none beyond 90°; axes a median 5.8° (max 19.1°) from the
+truth; GEO-K, with the true axis, has median 5.2°, P95 14.1° (the SMPL knee is not an exact hinge). But only 804 of
+2,400 knee windows had an identifiable axis. **S2-M6 relaxed the tied threshold from 0.25 to 0.8**, on validation
+evidence alone: on 156 AMASS validation sessions the knee axes had been accepted in only 44–47 % of sessions, although
+tied fits with contrast 0.25–0.8 were as accurate (median axis error 6–9°) as those below 0.25 (above 0.8: median
+13–24°); at 0.8 the facing is found in 91 % of sessions instead of 56 %, and every joint type gains (mean session
+median, hinge 7.62° → 6.50°, 2-DoF 7.61° → 7.05°, 3-DoF 8.21° → 7.31°; B1 8.90°, 8.33°, 9.57°; WORKLOG 2026-11-17).
+A rigid motion makes *every* azimuth fit, so all costs are near zero and the contrast is a ratio of two noise terms
+(0.79 in `test_tpose_tied_identification_recovers_the_axis_and_refuses_rigid_motion`); the tied fit must therefore
+also show that a wrong axis fits measurably badly: the RMS residual at the median azimuth at least
+`geometry.axis_min_spread` (0.1) × the RMS rate (that test's rigid motion: below 0.01; all 408 AMASS validation knee
+fits: above 0.3). Without a T-pose (DIODEM) the free fit is used, with its own threshold, unchanged.
 
 **GEO-K has its own calibration** (`geometry.kappa_scale_k.*`, `model_sigma_deg_k.*`, fitted with
 `fit-geometry calibration --estimator K`): its solvers differ from GEO-ID's (known axes; the 2-DoF constraint where

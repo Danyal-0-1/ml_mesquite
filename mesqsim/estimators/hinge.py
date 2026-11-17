@@ -183,6 +183,7 @@ class TposeAxisFit:
     contrast: float  # cost at the best azimuth / median cost over all azimuths (small = well identified)
     rms_rad_s: float
     n: int
+    spread: float = 0.0  # RMS residual at the median azimuth / RMS rate: how badly a wrong axis fits (rigid: ~0)
 
 
 def tpose_axis_basis(g_p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -203,7 +204,9 @@ def identify_hinge_axes_tpose(w_p: np.ndarray, w_c: np.ndarray, g_p: np.ndarray,
     u_c = q_c(T)^-1·Y(-delta_T)·q_p(T)·u_p = ``m_rel``·u_p (a rotation matrix). Only the azimuth of u_p in the
     horizontal plane is unknown: the Seel cost sum (|w_p × u_p| - |w_c × u_c|)² is evaluated over a 1° grid of
     azimuths in [0°, 180°) (u and -u cost the same) and refined. A rigid motion of thigh and shin together satisfies
-    the condition for every azimuth; ``contrast`` (best cost / median cost) then stays near 1 and the caller rejects it.
+    the condition for every azimuth: every cost is then near zero, so ``contrast`` (best cost / median cost) is a ratio
+    of two noise terms and may take any value; ``spread``, the RMS residual at the median azimuth relative to the RMS
+    rate, is near zero instead, and the caller rejects the fit on either.
     """
     e1, e2 = tpose_axis_basis(g_p)
     alpha = np.linspace(0.0, np.pi, n_grid, endpoint=False)
@@ -228,5 +231,8 @@ def identify_hinge_axes_tpose(w_p: np.ndarray, w_c: np.ndarray, g_p: np.ndarray,
     uc = np.asarray(m_rel) @ up
     best = float(cost(up[None], uc[None])[0])
     contrast = best / max(float(np.median(c)), 1e-300)
-    return TposeAxisFit(up, uc / np.linalg.norm(uc), float(a_best), float(contrast),
-                        float(np.sqrt(best / max(w_p.shape[0], 1))), int(w_p.shape[0]))  # fmt: skip
+    n = max(w_p.shape[0], 1)
+    scale = float(np.sqrt(np.mean(0.5 * (np.sum(w_p**2, axis=1) + np.sum(w_c**2, axis=1))))) if w_p.size else 0.0
+    spread = float(np.sqrt(np.median(c) / n) / scale) if scale > 0 else 0.0
+    return TposeAxisFit(up, uc / np.linalg.norm(uc), float(a_best), float(contrast), float(np.sqrt(best / n)),
+                        int(w_p.shape[0]), spread)  # fmt: skip

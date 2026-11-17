@@ -227,9 +227,28 @@ def verdicts(c: pd.DataFrame) -> dict:
             out[r["contrast"]] = "supports H2 (GEO-ID better)" if better else "does not support H2 (not shown better)"
         else:
             not_better = -r["95 % CI low"] < MARGIN_DEG
-            out[r["contrast"]] = ("supports H2 (not better by the margin)" if not_better
-                                  else "does not support H2 (GEO-ID better by more than the margin)")  # fmt: skip
+            out[r["contrast"]] = ("supports H2 (an improvement above the margin is excluded)" if not_better
+                                  else "does not support H2 (an improvement above the margin is not excluded)")
     return out
+
+
+def table_identification(res: list, err: dict) -> pd.DataFrame:
+    """How often GEO-ID identified the knee axes and the facing on test, and its error with and without them.
+
+    Without accepted knee axes GEO-ID has no facing, hence no T-pose frames: its range-of-motion solvers cannot run
+    and every joint keeps its box estimate (GEO-ID = B1 there, by construction)."""
+    knees = np.stack([r["geo_id"]["knee_axes"] for r in res])
+    facing = np.array([r["geo_id"]["facing"] for r in res])
+    rows = []
+    for name, sel in (("facing found", facing), ("no facing", ~facing), ("all", np.ones(len(res), bool))):
+        row = {"sessions": name, "count": int(sel.sum()), "share": float(sel.mean()),
+               "left knee axes accepted": float(knees[sel, 0].mean()) if sel.any() else np.nan,
+               "right knee axes accepted": float(knees[sel, 1].mean()) if sel.any() else np.nan}  # fmt: skip
+        for t in TYPES:
+            b1, geo = (stats(err[m][sel][:, :, JT == t])["median"] for m in ("B1", "GEO-ID"))
+            row[f"{t}: B1 → GEO-ID median"] = f"{b1:.2f} → {geo:.2f}" if sel.any() else "–"
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def table_confidence(res: list, methods) -> pd.DataFrame:
@@ -474,6 +493,7 @@ def main() -> int:
     t2 = table_by_type(err, starts, ("B0", "B1", "O1", "GEO-K", "GEO-ID", "GEO-ID-nofilter", "GEO-ID-hinge",
                                      "GEO-ID-w4", "GEO-ID-w16"))  # fmt: skip
     t3 = table_by_joint(err, ("B1", "O1", "GEO-K", "GEO-ID"))
+    t3b = table_identification(res, err)
     t4 = table_overall({m: err_o[m] for m in err_o} | {m: err[m] for m in METHODS_ALL if m not in err_o}, starts,
                        {})  # fmt: skip
     t4 = t4[t4["method"].str.replace(" *", "", regex=False).isin(list(err_o))]
@@ -529,8 +549,8 @@ def main() -> int:
     dio = None if args.no_diodem else diodem_table(cfg_path, args.workers)
 
     wall = time.perf_counter() - t_wall
-    write_markdown(Path(args.out), source, cfg, commit, args, jobs, res, starts, subjects, t1, t2, t3, t4, t5, t6, t7,
-                   c, v, sw_tab, rb_tab, dio, geo_ms, wall)  # fmt: skip
+    write_markdown(Path(args.out), source, cfg, commit, args, jobs, res, starts, subjects, t1, t2, (t3, t3b), t4, t5,
+                   t6, t7, c, v, sw_tab, rb_tab, dio, geo_ms, wall)  # fmt: skip
     print(f"wrote {args.out} in {wall / 60:.1f} min")
     return 0
 
@@ -609,7 +629,13 @@ def write_markdown(out: Path, source, cfg, commit, args, jobs, res, starts, subj
         lines.append(f"| `{k}` | {val if not isinstance(val, float) else f'{val:.6g}'} | {prm['label']} |")
     lines += ["", "## Table 1: primary metric, |wrap(δ̂ − δ)| over all 14 joints (degrees)", "", md(t1),
               "## Table 2: by joint type (mean / P95, degrees)", "", md(t2),
-              "## Table 3: by joint, all motion starts pooled (median / P95, degrees)", "", md(t3),
+              "## Table 3: by joint, all motion starts pooled (median / P95, degrees)", "", md(t3[0]),
+              "## Table 3b: what GEO-ID could identify", "",
+              "GEO-ID needs the knee axes first: the facing comes from them, the T-pose frames from the facing, "
+              "and the range-of-motion solvers of the other joints from the T-pose frames. A session without "
+              "accepted knee axes therefore has no facing, and every joint keeps its box estimate (GEO-ID = B1 by "
+              "construction). Errors: median over all motion steps, all motion starts pooled (degrees).", "",
+              md(t3[1]),
               "## Table 4: secondary metric, parent-relative orientation error with the true mountings (degrees)", "",
               "Includes fusion tilt error and quantisation, so even O2 is not 0.", "", md(t4),
               "## Table 5: by excitation tercile (median / P95, degrees)", "",

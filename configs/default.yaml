@@ -321,7 +321,15 @@ geometry:
   axis_contrast_max:
     value: 0.25
     label: assumption
-    source: "Step 2 brief §5.4 identifiability: an axis fit is accepted only if its cost is at most 0.25 x the median cost over alternative axes; when thigh and shin turn together (no knee motion) every axis fits"
+    source: "Step 2 brief §5.4 identifiability: a free (four-angle, no T-pose) axis fit is accepted only if its cost is at most 0.25 x the median cost over alternative axes; when thigh and shin turn together (no knee motion) every axis fits"
+  axis_tpose_contrast_max:
+    value: 0.8
+    label: assumption
+    source: "the same test for the T-pose-tied fit (one unknown azimuth): accepted if its cost is at most 0.8 x the median over all azimuths. Chosen on AMASS validation only (78 sequences, motion at 10 and 30 min: 156 sessions; WORKLOG 2026-11-17): at 0.25 the knee axes were accepted in 44-47 % of sessions although tied fits with contrast 0.25-0.8 were as accurate (median axis error 6-9 deg) as those below 0.25, and above 0.8 they grow (median 13-24 deg); mean session-median hinge error 7.62 deg at 0.25, 6.89 at 0.6, 6.50 at 0.8, 6.51 at 1.0 (B1 8.90)"
+  axis_min_spread:
+    value: 0.1
+    label: assumption
+    source: "a T-pose-tied axis fit is accepted only if a wrong axis fits measurably badly: the RMS residual at the median azimuth is at least 0.1 x the RMS rate. Rigid motion (thigh and shin turning together) makes every azimuth fit, so this is ~0 and the contrast, a ratio of two noise terms, can take any value (tests/test_hinge.py); every one of 408 AMASS validation knee fits gave more than 0.3 (WORKLOG 2026-11-17)"
   axis_tpose_tolerance_deg:
     value: 15.0
     label: assumption

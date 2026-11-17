@@ -22,6 +22,7 @@ METHODS_ALL = ("B0", "B1", "O1", "O2", "GEO-K", "GEO-ID", "GEO-ID-nofilter", "GE
 METHODS_SWEEP = ("B1", "O1", "O2", "GEO-K", "GEO-ID")
 ERR_ORIENT = ("B1", "O1", "O2", "GEO-K", "GEO-ID")  # secondary metric kept for these
 _JT = np.array([j.jtype for j in JOINTS])
+_KNEES = tuple(k for k, j in enumerate(JOINTS) if j.jtype == "hinge")
 NEAR_LIMIT_DEG = 5.0  # a 3-DoF joint is "near its limit" within this of an edge of Omega (or outside it)
 
 
@@ -86,12 +87,17 @@ def session_worker(job: dict, cfg, methods=METHODS_ALL) -> dict:
                 e_w = geo_w.estimate(series, d.session, host)
                 est[f"GEO-ID-w{w}"] = (e_w.delta_rad, e_w.kappa, e_w.uncertain)
         resets = [(t, joints) for t, kind, joints in diag.events.events if kind == 1]
+        # what GEO-ID could identify: without accepted knee axes it has no facing, hence no T-pose frames and no
+        # range of motion either, and every joint keeps its box estimate
+        identified = {"knee_axes": np.array([k in diag.state["axes"] for k in _KNEES]),
+                      "facing": diag.state["facing_rad"] is not None}  # fmt: skip
     else:
-        resets = []
+        resets, identified = [], None
     if "GEO-K" in methods:
         e_k = GeoEstimator(cfg, GeoTruth.from_meta(d.meta)).estimate(series, d.session, host)
         est["GEO-K"] = (e_k.delta_rad, e_k.kappa, e_k.uncertain)
-    out = {"job": job, "n_query": int(host.size), "geo_seconds": seconds, "excitation": excitation(clip.seg_q, cfg)}
+    out = {"job": job, "n_query": int(host.size), "geo_seconds": seconds, "excitation": excitation(clip.seg_q, cfg),
+           "geo_id": identified}  # fmt: skip
     since = np.full((int(mot.sum()), N_JOINTS), np.nan)
     for t, joints in resets:
         dt = host[mot] - t
