@@ -23,7 +23,10 @@ def test_existing_leaf_is_replaced_and_everything_else_kept(cfg_copy):
     cfg = load_config(cfg_copy)
     assert cfg["geometry.kappa_hold"] == 51.5 and cfg.param("geometry.kappa_hold")["label"] == "fitted"
     changed = [i for i, (a, b) in enumerate(zip(before, after, strict=True)) if a != b]
-    assert len(changed) == 3  # value, label, source; comments and every other line unchanged
+    # only the value, label and source lines of that leaf change; comments and every other line stay as they were
+    head = after.index("  kappa_hold:")
+    assert 1 <= len(changed) <= 3 and all(head < i <= head + 3 for i in changed)
+    assert all(after[i].strip().split(":")[0] in ("value", "label", "source") for i in changed)
     assert cfg["error_model.drift_sigma_deg_per_min"] == 0.2
 
 

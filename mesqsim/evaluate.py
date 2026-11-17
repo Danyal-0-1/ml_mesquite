@@ -43,7 +43,7 @@ from .body import JOINTS, N_JOINTS, N_PODS
 from .conventions import geodesic_angle_rad, quat_conj, quat_mul, wrap_rad, yaw_quat
 
 __all__ = ["BASELINES", "GEO_METHODS", "METHODS", "USES_TRUTH", "Grid", "grid_from_labels", "estimate",
-           "method_estimate", "latest_frames", "evaluate"]  # fmt: skip
+           "method_estimate", "latest_frames", "Scorer", "evaluate"]  # fmt: skip
 
 BASELINES = ("B0", "B1", "O1", "O2")
 GEO_METHODS = ("GEO-K", "GEO-ID", "GEO-ID-nofilter", "GEO-ID-hinge", "GEO-ID-w4", "GEO-ID-w16")
@@ -160,29 +160,41 @@ def _true_pod_q(series: pd.DataFrame, rows: np.ndarray, labels_ticks: pd.DataFra
     return out.reshape(*rows.shape, 4)
 
 
+class Scorer:
+    """The scorer's view of one session: the grid, the truth, and the frames each step's secondary metric uses."""
+
+    def __init__(self, data: dict, series: pd.DataFrame):
+        self.grid = Grid(data["labels_joints"])
+        plan = data["meta"]["plan"]
+        self.host = self.grid.t_s + plan["host_epoch_s"]
+        latest = latest_frames(series, self.host)
+        p_true = _true_pod_q(series, latest["row"], data["labels_ticks"])
+        mount_inv = quat_conj(np.array([p["mount_q"] for p in plan["pods"]]))  # (15, 4)
+        self.seg_hat = quat_mul(latest["q"], mount_inv)  # (K, 15, 4): q_i m_i^-1
+        seg_true = quat_mul(p_true, mount_inv)
+        self.parent = np.array([j.parent for j in JOINTS])
+        self.child = np.array([j.child for j in JOINTS])
+        self.j_true = quat_mul(quat_conj(seg_true[:, self.parent]), seg_true[:, self.child])  # (K, 14, 4)
+
+    def errors(self, d_hat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(primary |wrap(delta_hat - delta)|, secondary geodesic error with true mountings), radians, (K, 14)."""
+        err_h = np.abs(wrap_rad(d_hat - self.grid.delta_rad))
+        j_hat = quat_mul(quat_mul(quat_conj(self.seg_hat[:, self.parent]), yaw_quat(d_hat)),
+                         self.seg_hat[:, self.child])  # fmt: skip
+        return err_h, geodesic_angle_rad(quat_mul(quat_conj(self.j_true), j_hat))
+
+
 def evaluate(data: dict, series: pd.DataFrame, baselines=BASELINES, cfg=None) -> pd.DataFrame:
     """Errors of each method at every step and joint. ``data`` is :func:`mesqsim.io.read_session` output.
 
     ``baselines`` may name any method of :data:`METHODS`; GEO methods need ``cfg`` (its ``geometry:`` section).
     """
-    grid = Grid(data["labels_joints"])
-    plan = data["meta"]["plan"]
-    host = grid.t_s + plan["host_epoch_s"]
-    latest = latest_frames(series, host)
-    p_true = _true_pod_q(series, latest["row"], data["labels_ticks"])
-    mount_inv = quat_conj(np.array([p["mount_q"] for p in plan["pods"]]))  # (15, 4)
-    seg_hat = quat_mul(latest["q"], mount_inv)  # (K, 15, 4): q_i m_i^-1
-    seg_true = quat_mul(p_true, mount_inv)
-    parent = np.array([j.parent for j in JOINTS])
-    child = np.array([j.child for j in JOINTS])
-    j_true = quat_mul(quat_conj(seg_true[:, parent]), seg_true[:, child])  # (K, 14, 4)
-
+    sc = Scorer(data, series)
+    grid = sc.grid
     out = []
     for name in baselines:
         d_hat, kappa, uncertain = method_estimate(name, grid, series, data["session"], data.get("meta"), cfg)
-        err_h = np.abs(wrap_rad(d_hat - grid.delta_rad))
-        j_hat = quat_mul(quat_mul(quat_conj(seg_hat[:, parent]), yaw_quat(d_hat)), seg_hat[:, child])
-        err_o = geodesic_angle_rad(quat_mul(quat_conj(j_true), j_hat))
+        err_h, err_o = sc.errors(d_hat)
         k = grid.step.size
         unc = uncertain.reshape(-1)
         out.append(pd.DataFrame({
