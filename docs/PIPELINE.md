@@ -1,6 +1,6 @@
 # Pipeline
 
-*Status: S2-M3. Every stage, from one session to a dataset of sessions and the results tables; Step 2's estimator stage (§7) has its solvers; the filter's fitted beliefs come in S2-M4.*
+*Status: S2-M5. Every stage, from one session to a dataset of sessions and the results tables; Step 2's estimator stage (§7) with its fitted beliefs (§8) and DIODEM (§9).*
 
 ## Picture first
 
@@ -28,6 +28,7 @@ frames.parquet + session.json ─► STEP 0 ─► series.parquet ─► baselin
 | simulate and score a dataset | `python -m mesqsim dataset --seed 1 --source amass\|synthetic` | run folder with `sessions/`, `dataset.csv`, `results/` |
 | results tables and figures | `python scripts/make_results.py` | `docs/RESULTS_STEP1.md`, `docs/figures/results_*.png` |
 | fit the range-of-motion boxes (train only) | `python -m mesqsim fit-geometry rom --source amass --write` | `geometry.rom_limits_deg.<joint>` in `configs/default.yaml`, label `fitted` |
+| fit the confidence, q and κ_hold (validation only) | `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` | `geometry.kappa_scale.*`, `geometry.model_sigma_deg.*`, `geometry.drift_q_rad2_per_s`, `geometry.kappa_hold` (label `fitted`); `$MESQ_OUTPUT_DIR/fit_calibration_g<commit>_amass_s1/report.json` |
 | list runs | `python -m mesqsim list-runs` | |
 | delete runs | `python -m mesqsim clean --run <folder>` or `clean --all --yes` | |
 
@@ -172,4 +173,20 @@ Code: `mesqsim/evaluate.py`, `mesqsim/pipeline.py`.
   GEO-ID-nofilter, GEO-ID-hinge, GEO-ID-w4, GEO-ID-w16.
 - **Checks:** 21.1 causality, 21.2 determinism, 21.3 label blindness, 31.1 pair timing
   ([VALIDATION.md](VALIDATION.md)).
+
+### 8. Fitting the estimator's beliefs (`mesqsim/geo_fit.py`, `mesqsim/geo_sessions.py`)
+
+- **In:** the split manifest; AMASS train sequences (Ω) or the validation sessions of the dataset (calibration),
+  simulated in memory in worker processes with the dataset's own seeds (nothing is written per session).
+- **Out:** `fitted` values in `configs/default.yaml` (in place, comments kept; the source note names the command, the
+  data, the split hash, the counts and the commit) and a JSON report under `$MESQ_OUTPUT_DIR`. Run it from a clean
+  checkout: the commit in the note must contain the code that made the fit. Rules: [MATH.md §14, §16](MATH.md).
+
+### 9. DIODEM (`mesqsim/diodem_geo.py`)
+
+- **In:** the verified DIODEM download (`$MESQ_DATA_DIR/diodem`), loaded with the authors' loader at 40 Hz.
+- **What runs:** six-axis VQF per rigid IMU; GEO-ID unchanged on a Step 0-shaped series of the two IMUs of each hinge;
+  truth from the optical frames ([MATH.md §17](MATH.md)).
+- **Out:** per experiment and hinge, the error summaries (in RESULTS_STEP2), and the figure
+  `docs/figures/diodem_geo_hinge.png` (check 32.1).
 
