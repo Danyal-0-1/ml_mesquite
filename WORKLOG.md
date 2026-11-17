@@ -792,7 +792,7 @@ checks and a one-hinge figure. One pull request for both (the DIODEM figure depe
   tilt 1e-17; 29.1: O2 0 ≤ GEO-K 8.20–8.21° ≤ B1 19.87–19.90°; 30.1 (synthetic validation, AMASS-fitted beliefs):
   hinge 0.750 / 1.000, 2dof 0.638 / 0.807, 3dof 0.682 / 0.976; 32.1: 267 files ok, ψ 30.000°, δ −7.000°, GEO-ID 15.01°
   against 80.71°.
-- A first full-check run at `9b1…` failed one test only (`test_config_write` expected `kappa_hold`'s label line to
+- A first full-check run at `9abaa8a` failed one test only (`test_config_write` expected `kappa_hold`'s label line to
   change, but it was already `fitted`); fixed so the test checks that only that leaf's lines change.
 
 **Decisions.**
