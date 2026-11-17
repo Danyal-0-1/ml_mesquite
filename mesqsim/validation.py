@@ -1524,3 +1524,48 @@ def _coverage_check(quick: bool) -> CheckResult:
     ok = all(0.0 <= x <= 1.0 for t in res.values() for x in t.values())
     txt = "; ".join(f"{t} {res[t][0.68]:.3f} / {res[t][0.95]:.3f}" for t in res)
     return CheckResult(f"{len(jobs)} sessions, 68 % / 95 % coverage: {txt}", ok)
+
+
+@register(
+    "32.1",
+    "DIODEM: files, the truth's sign, and GEO-ID against the optical truth on one hinge",
+    "(a) Every DIODEM file against manifests/diodem.csv; (b) the truth's sign on a synthetic rotation: q_vqf = "
+    "Y(-psi)·q_opt with psi = 30° must give psi = -heading(q_vqf·q_opt^-1) = 30°, and psi_p = 12°, psi_c = 5° must "
+    "give delta = -7°; (c) GEO-ID, unchanged, on arm exp01, hinge seg2 -> seg3 (6.1 min, rigid IMUs, six-axis VQF at "
+    "40 Hz, no box, no T-pose), against the optical relative heading; regenerates docs/figures/diodem_geo_hinge.png.",
+    "A reality check on real sensors whose north drifts (−80° in 6 min here): the geometry must track what a perfect "
+    "registration at the start cannot. Out of distribution (mechanical chains): no claim about people.",
+    "(a) 267 of 267 files ok; (b) 30.000°, -7.000°; (c) GEO-ID's median error below the start registration's",
+    "python scripts/make_figures.py",
+)
+def _diodem_geo(quick: bool) -> CheckResult:
+    from .config import load_config
+    from .data import diodem
+    from .diodem_geo import psi_from_vqf_and_optical, run_hinge
+    from .manifest import verify_manifest
+    from .paths import REPO_ROOT, data_dir, manifest_dir
+
+    q_opt = quat_normalize(np.random.default_rng(3201).normal(size=(50, 4)))
+    psi = float(np.rad2deg(np.median(psi_from_vqf_and_optical(quat_mul(yaw_quat(np.full(50, -np.deg2rad(30.0))),
+                                                                       q_opt), q_opt))))  # fmt: skip
+    p_p = psi_from_vqf_and_optical(quat_mul(yaw_quat(-np.deg2rad(12.0)), q_opt[:1]), q_opt[:1])
+    p_c = psi_from_vqf_and_optical(quat_mul(yaw_quat(-np.deg2rad(5.0)), q_opt[:1]), q_opt[:1])
+    delta = _deg(float(wrap_rad(p_c - p_p)[0]))
+    sign_ok = abs(psi - 30.0) < 1e-9 and abs(delta + 7.0) < 1e-9
+    if not diodem.is_available():
+        return CheckResult(f"(b) psi {psi:.3f}°, delta {delta:.3f}°; DIODEM not downloaded", None if sign_ok else False)
+    res = verify_manifest(manifest_dir() / diodem.MANIFEST, data_dir())
+    n_ok = sum(s == "ok" for _, s, _ in res)
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml")
+    r = run_hinge(diodem.load_trial(1), "seg2", "seg3", cfg)
+    err = np.rad2deg(np.abs(wrap_rad(r["delta_rad"] - r["truth_rad"])))
+    ref = np.rad2deg(np.abs(wrap_rad(r["start_oracle_rad"] - r["truth_rad"])))
+    if not quick:
+        from .figures import diodem_geo_figure
+
+        diodem_geo_figure(r, "arm exp01, hinge seg2 → seg3", REPO_ROOT / "docs" / "figures" / "diodem_geo_hinge.png")
+    ok = sign_ok and n_ok == len(res) == 267 and np.nanmedian(err) < np.nanmedian(ref)
+    return CheckResult(f"(a) {n_ok} of {len(res)} files ok; (b) psi {psi:.3f}°, delta {delta:.3f}°; (c) GEO-ID median "
+                       f"{np.nanmedian(err):.2f}° (P95 {np.nanpercentile(err, 95):.2f}°, first information after "
+                       f"{r['t_first_info_s']:.1f} s) against {np.nanmedian(ref):.2f}° for a perfect registration at "
+                       f"the start (end {ref[-1]:.1f}°)", ok)  # fmt: skip
