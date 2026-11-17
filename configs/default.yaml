@@ -292,6 +292,14 @@ geometry:
     value: 0.5
     label: assumption
     source: "Step 2 brief §5.4: an axis fit is accepted when the RMS of |w_p x u_p| - |w_c x u_c| is at most 0.5 x the RMS rate (0 for an exact hinge)"
+  axis_contrast_max:
+    value: 0.25
+    label: assumption
+    source: "Step 2 brief §5.4 identifiability: an axis fit is accepted only if its cost is at most 0.25 x the median cost over alternative axes; when thigh and shin turn together (no knee motion) every axis fits"
+  axis_tpose_tolerance_deg:
+    value: 15.0
+    label: assumption
+    source: "GEO-ID ties the knee axis to the T-pose (horizontal there, one line in both segments; one unknown), then refines all four angles locally and keeps the refinement only within 15 deg of the tied solution (the T-pose posture error is about 5 deg per segment)"
   axis_starts:
     value: 8
     label: assumption

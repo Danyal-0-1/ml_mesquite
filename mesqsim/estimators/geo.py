@@ -40,6 +40,7 @@ from ..conventions import (
     quat_mean,
     quat_mul,
     quat_rotate,
+    quat_to_matrix,
     wrap_rad,
     yaw_quat,
 )
@@ -47,7 +48,15 @@ from ..correction import chain_corrections_rad
 from .anatomy import CARDAN_SEQ, HINGE_AXES, TWODOF_AXES
 from .clock import PodSamples, body_rates, epoch_starts, interp_rates, map_epoch, pair_samples, pod_samples
 from .contract import Estimate, GeoTruth
-from .hinge import AxisFit, axis_in_world, hinge_closed_form, identify_hinge_axes, vote_tpose, vote_vertical
+from .hinge import (
+    AxisFit,
+    axis_in_world,
+    hinge_closed_form,
+    identify_hinge_axes,
+    identify_hinge_axes_tpose,
+    vote_tpose,
+    vote_vertical,
+)
 from .rom import UNBOUNDED_DEG, rom_solve
 from .twodof import twodof_solve
 from .vmfilter import JointFilter
@@ -481,7 +490,14 @@ class GeoEstimator:
         return self._rate_cache[key]
 
     def _identify(self, j: int, w: _Window) -> AxisFit | None:
-        """GEO-ID: (re-)identify the hinge axes from the rates since the T-pose; keep the last good fit otherwise."""
+        """GEO-ID: (re-)identify the hinge axes from the rates since the motion began; keep the last good fit otherwise.
+
+        With a valid T-pose snapshot and box prior, the knee axis is tied to the T-pose (horizontal there, one line in
+        both segments: :func:`identify_hinge_axes_tpose`, one unknown), then refined locally with all four angles and
+        the refinement kept only if it stays within ``axis_tpose_tolerance_deg``. Without a T-pose (DIODEM), the free
+        four-angle fit. Either way the fit must stand out from the alternatives (contrast <= ``axis_contrast_max``):
+        when thigh and shin turn together, every axis fits and none is accepted.
+        """
         jt = JOINTS[j]
         prev = self.state["axes"].get(j)
         tp, wp = self._pod_rates(jt.parent, w)
@@ -492,17 +508,52 @@ class GeoEstimator:
             float(self.p["axis_min_rate_deg_s"]))
         if int(strong.sum()) < int(self.p["axis_min_pairs"]):
             return prev
-        start = (prev.u_p, prev.u_c) if prev is not None else None
-        fit = identify_hinge_axes(wp[strong], wc_at_p[strong], start=start,
-                                  n_starts=2 if prev is not None else int(self.p["axis_starts"]))  # fmt: skip
+        wp, wc_at_p = wp[strong], wc_at_p[strong]
+        contrast_max = float(self.p["axis_contrast_max"])
+        tie = self._tpose_tie(j)
+        if tie is not None:
+            tied = identify_hinge_axes_tpose(wp, wc_at_p, *tie)
+            if tied.contrast > contrast_max:
+                return prev
+            ref = identify_hinge_axes(wp, wc_at_p, start=(tied.u_p, tied.u_c), n_starts=0)
+            tol = np.deg2rad(float(self.p["axis_tpose_tolerance_deg"]))
+            if max(_axis_angle(ref.u_p, tied.u_p), _axis_angle(ref.u_c, tied.u_c)) <= tol:
+                fit = AxisFit(ref.u_p, ref.u_c, ref.rms_rad_s, ref.rel_residual, ref.n, tied.contrast, True)
+            else:
+                scale = float(np.sqrt(np.mean(0.5 * (np.sum(wp**2, axis=1) + np.sum(wc_at_p**2, axis=1)))))
+                fit = AxisFit(tied.u_p, tied.u_c, tied.rms_rad_s, tied.rms_rad_s / scale if scale > 0 else np.inf,
+                              tied.n, tied.contrast, True)  # fmt: skip
+        else:
+            start = (prev.u_p, prev.u_c) if prev is not None else None
+            fit = identify_hinge_axes(wp, wc_at_p, start=start,
+                                      n_starts=2 if prev is not None else int(self.p["axis_starts"]))  # fmt: skip
+            if fit.contrast > contrast_max:
+                return prev
         if fit.rel_residual > float(self.p["axis_max_residual"]):
             return prev
         if prev is not None:
             moved = max(_axis_angle(fit.u_p, prev.u_p), _axis_angle(fit.u_c, prev.u_c))
             if moved > np.deg2rad(30.0):  # a jump: the sign bookkeeping no longer refers to the same axes
                 self.state["sign_tally"][j] = 0
+            if not fit.tied:
+                from .hinge import align_sign
+
+                fit = AxisFit(align_sign(fit.u_p, prev.u_p), align_sign(fit.u_c, prev.u_c), fit.rms_rad_s,
+                              fit.rel_residual, fit.n, fit.contrast, False)  # fmt: skip
         self.state["axes"][j] = fit
         return fit
+
+    def _tpose_tie(self, j: int) -> tuple[np.ndarray, np.ndarray] | None:
+        """(g_p, m_rel): world up in the parent pod frame at the T-pose, and the rotation taking the parent pod frame
+        to the child's at the T-pose with box registration's delta_T, or None without a valid snapshot and prior."""
+        tp = self.state.get("tpose")
+        jt = JOINTS[j]
+        if tp is None or not (tp["valid"][jt.parent] and tp["valid"][jt.child]) or tp["kappa"][j] <= 0:
+            return None
+        q_p, q_c = tp["q"][jt.parent], tp["q"][jt.child]
+        g_p = quat_rotate(quat_conj(q_p), [0.0, 0.0, 1.0])
+        rel = quat_mul(quat_mul(quat_conj(q_c), yaw_quat(-tp["mu"][j])), q_p)
+        return g_p, quat_to_matrix(rel)
 
     def _tpose_ref(self, j: int) -> np.ndarray | None:
         """q_p(T)^-1·Y(mu_T)·q_c(T): the pod-to-pod rotation in the T-pose, if both pods have a snapshot and the
@@ -524,6 +575,8 @@ class GeoEstimator:
         if ref is not None and fit.kappa > 0:
             votes += vote_tpose(pairs.q_p, pairs.q_c, fit.delta_rad, ref, np.deg2rad(self.p["tpose_sign_margin_deg"]))
         tally = self.state["sign_tally"].get(j, 0) + votes
+        if axes.tied:  # u_c was derived from u_p through the T-pose: the relative sign is right by construction
+            tally = max(tally, 1)
         self.state["sign_tally"][j] = tally
         self._detail = {"info": fit.info, "kappa_stat": fit.kappa, "u_p": axes.u_p, "u_c": axes.u_c,
                         "sign_tally": tally}  # fmt: skip

@@ -146,3 +146,34 @@ def test_flipped_axis_is_corrected_by_the_tpose_rule():
     margin = np.deg2rad(60.0)
     assert vote_tpose(q_p, q_c, delta, j_t, margin) == 1
     assert vote_tpose(q_p, q_c, delta + np.pi, j_t, margin) == -1  # the flipped-axis answer is 180° off
+
+
+def test_tpose_tied_identification_recovers_the_axis_and_refuses_rigid_motion():
+    """In the T-pose the knee axis is horizontal and one line in both segments: one unknown (brief §5.4, GEO-ID)."""
+    from mesqsim.conventions import quat_to_matrix
+    from mesqsim.estimators.hinge import identify_hinge_axes_tpose
+
+    rng = np.random.default_rng(12)
+    m_p, m_c = quat_normalize(rng.normal(size=(2, 4)))
+    u_seg = np.array([1.0, 0.0, 0.0])
+    s_t = quat_mul(yaw_quat(0.4), exp_map([np.pi / 2, 0.0, 0.0]))  # upright T-pose: segment x is horizontal
+    psi_p, psi_c = 0.3, -1.2
+    q_pt = quat_mul(quat_mul(yaw_quat(-psi_p), s_t), m_p)
+    q_ct = quat_mul(quat_mul(yaw_quat(-psi_c), s_t), m_c)
+    g_p = quat_rotate(quat_conj(q_pt), [0.0, 0.0, 1.0])
+    m_rel = quat_to_matrix(quat_mul(quat_mul(quat_conj(q_ct), yaw_quat(-(psi_c - psi_p))), q_pt))
+    t = np.arange(0.0, 8.0, 0.02)
+    s_p = exp_map(np.c_[0.6 * np.sin(1.3 * t), 0.4 * np.sin(0.7 * t + 1.0), 0.5 * np.sin(0.9 * t + 2.0)])
+    s_c = quat_mul(s_p, exp_map((0.8 + 0.7 * np.sin(2.1 * t))[:, None] * u_seg))
+    _, w_p = body_rates(t, quat_mul(s_p, m_p), 0.1)
+    _, w_c = body_rates(t, quat_mul(s_c, m_c), 0.1)
+    fit = identify_hinge_axes_tpose(w_p, w_c, g_p, m_rel)
+    assert _axis_angle_deg(fit.u_p, quat_rotate(quat_conj(m_p), u_seg)) < 0.5
+    assert _axis_angle_deg(fit.u_c, quat_rotate(quat_conj(m_c), u_seg)) < 0.5
+    assert fit.contrast < 0.01
+    # thigh and shin turning together (straight knee): every axis fits, nothing is identified
+    s_c_rigid = s_p
+    _, w_c_rigid = body_rates(t, quat_mul(s_c_rigid, m_c), 0.1)
+    m_rel_rigid = quat_to_matrix(quat_mul(quat_conj(m_c), m_p))
+    rigid = identify_hinge_axes_tpose(w_p, w_c_rigid, g_p, m_rel_rigid)
+    assert rigid.contrast > 0.25
