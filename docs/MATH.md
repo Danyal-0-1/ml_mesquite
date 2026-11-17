@@ -1,6 +1,6 @@
 # The mathematics
 
-*Status: S2-M1. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections (§9 on) grow with each milestone.*
+*Status: S2-M3. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections §9–§15 (clock, von Mises, events, hinge, 2-DoF, range of motion, facing).*
 
 ## 1. Picture first
 
@@ -261,9 +261,112 @@ for the range-of-motion solver.
   frames, or already in a later boot epoch, gives its joints κ₀ = 0. Before the box ends, the answer is a running
   box registration (frames so far) with κ = 0.
 - **Reset:** when Step 0 shows a pod's first frame of a new boot epoch, its joints drop to κ = 0.
-- **Window** every `geometry.step_s` from the T-pose on (pods strapped on), never inside an unrecorded phase: each
-  joint is solved over the pairs of the last `geometry.window_s` of its pods' current boot epochs. The result
-  enters the filter with weight `step_s/window_s`, because consecutive windows share 7/8 of their samples
-  (each sample then counts about once).
+- **Window** every `geometry.step_s` from the **motion** phase on (from the T-pose only if a recording has no
+  motion phase), never inside an unrecorded phase: each joint is solved over the pairs of the last
+  `geometry.window_s` of its pods' current boot epochs. The result enters the filter with weight
+  `step_s/window_s`, because consecutive windows share 7/8 of their samples (each sample then counts about once).
+  *Why not the T-pose:* it is a calibration snapshot, not joint mechanics. The wearer holds one posture, so a
+  static window repeats one configuration ~256 times and claims a huge κ, and the posture's error has nothing to do
+  with the joint's axes (the simulator gives every segment 5°, which makes the knee non-hinge): GEO-K's knee was
+  3.3° off with κ ≈ 10⁶ through the T-pose before this rule. The T-pose *snapshot* is still used (§12, §15).
+- **Model error.** Every window's variance is statistical plus model error: 1/κ_w = 1/κ_stat + σ_m², with σ_m per
+  joint type (`geometry.hinge_model_sigma_deg`, `twodof_model_sigma_deg`, `rom_model_sigma_deg`). One window cannot
+  pin δ more tightly than the joint model holds; the residual-based κ_stat cannot see a bias that rotates the
+  whole window (it is absorbed into δ̂).
 - **Output** at a query time: the latest event's belief predicted forward; `uncertain` = κ < `geometry.kappa_hold`.
+
+## 12. Step 2: hinge joints, the knees (owned by [mesqsim/estimators/hinge.py](../mesqsim/estimators/hinge.py))
+
+**Closed form.** The hinge axis is one physical line h; in the parent pod's frame it is u_p, in the child's u_c.
+With q_i = Y(−ψ_i)·s_i·m_i: q_p·u_p = Y(−ψ_p)·h and q_c·u_c = Y(−ψ_c)·h, so q_p·u_p = Y(δ)·q_c·u_c with
+δ = ψ_c − ψ_p. Let a_t, b_t be the horizontal (x, y) parts of q_p·u_p and q_c·u_c over a window:
+
+```text
+C = Σ a_t·b_t      S = Σ (b_t × a_t) = Σ (b_x a_y − b_y a_x)      δ̂ = atan2(S, C)      I = √(C² + S²)
+Σ |a_t − Y(δ)·b_t|² = Σ (|a_t|² + |b_t|²) − 2·I·cos(δ − δ̂)
+```
+
+With Gaussian noise of variance σ² per component, log-likelihood(δ) = const + (I/σ²)·cos(δ − δ̂): exactly von Mises,
+**κ = I/σ̂²**, σ̂² = RSS/(2N − 1), floored by `geometry.hinge_sigma_floor_deg`. A vertical axis has no horizontal
+part: I = 0, κ = 0 (the blind spot). One instant with a non-vertical axis already determines δ.
+
+*Worked example (`test_worked_example_12_and_5_degrees_gives_minus_7`, check 22.1):* h = x horizontal,
+ψ_p = 12°, ψ_c = 5°: a = (cos 12°, −sin 12°), b = (cos 5°, −sin 5°); C = cos 7° = 0.992546,
+S = −sin 7° = −0.121869; δ̂ = −7.000°.
+
+| piece | GEO-K (simulation only) | GEO-ID (deployable) |
+|---|---|---|
+| axes | u = m⁻¹·e_x with the true mountings; e_x is the thigh's left-right axis at the SMPL rest pose ([anatomy.py](../mesqsim/estimators/anatomy.py)) | identified from body rates: ‖ω_p × u_p‖ = ‖ω_c × u_c‖ at every instant (Seel, Raisch & Schauer 2014), least squares in spherical coordinates from 8 fixed starts (later: warm start + 2), over the rate pairs of the last 120 s with ‖ω_p‖ + ‖ω_c‖ ≥ 20 °/s; accepted when the RMS residual is ≤ 0.5 × the RMS rate |
+| relative sign | known | votes, tallied over windows (a fit that moves > 30° resets the tally): **vertical rule** — the true axis has equal vertical components in both pods, so Σ (q_p u_p)_z·(q_c u_c)_z > 0; it votes only when the mean product is ≥ sin²(5°); **T-pose rule** — K = q_p⁻¹·Y(d)·q_c·J_T⁻¹, with J_T the pod-to-pod rotation in the T-pose under box registration's δ, is the knee's rotation since the T-pose: about \|flexion\| for the right d, exactly 180° for d + 180° when the axis is horizontal (a half turn about the vertical composed with a turn about a horizontal axis); it votes when the median angles differ by ≥ 60°. No votes: the window is ambiguous, κ = 0 |
+
+The T-pose rule realises the brief's *Should* ("resolve the sign with the knee's one-way flexion"): it is what
+makes GEO-ID work while walking, where the knee axis stays near horizontal and the vertical rule cannot vote.
+On a synthetic walk every window voted for the right sign; identified axes were within 0.02°–0.98° of the truth
+with fusion noise on (scratch run, 4 sessions) and within 0.001° on noise-free motion (check 24.1).
+
+## 13. Step 2: 2-DoF joints, the elbows, wrists and ankles (owned by [mesqsim/estimators/twodof.py](../mesqsim/estimators/twodof.py))
+
+Axis j1 fixed in the parent and j2 in the child at a constant angle γ (Laidig et al. 2019):
+(q_p·j1)·(Y(δ)·q_c·j2) = cos γ. With a = q_p·j1, b = q_c·j2:
+
+```text
+P_t·cos δ + Q_t·sin δ + R_t = 0,    P = a_h·b_h,  Q = b_h × a_h,  R = a_z·b_z − cos γ      (one equation per instant)
+cost(δ) = Σ (P cos δ + Q sin δ + R)² = A0 + A1 cos δ + B1 sin δ + A2 cos 2δ + B2 sin 2δ
+A0 = Σ (P² + Q²)/2 + R²,  A1 = 2ΣPR,  B1 = 2ΣQR,  A2 = Σ (P² − Q²)/2,  B2 = ΣPQ
+```
+
+The cost is evaluated on a 0.5° grid and each local minimum refined by Newton steps. **κ** (Laplace) = cost″(δ̂) /
+(2σ̂²), σ̂² = cost/(N − 1) (floor `geometry.twodof_sigma_floor_deg`). **Two minima:** a degree-two polynomial can
+have two; when the vertical terms vanish (R ≡ 0, e.g. γ = 90° with one axis horizontal) cost(δ) = cost(δ + 180°).
+Rule: if the second minimum's cost exceeds the best by less than 2σ̂²·3 (likelihood ratio below e³ ≈ 20), the
+window is **ambiguous** and κ = 0 (`geometry.twodof_ambiguity_llr`). Axes (SMPL segment frames, γ = 90°):
+elbow j1 = y (flexion, vertical at the rest pose), j2 = x (forearm long axis); wrist j1 = z, j2 = y; ankle
+j1 = x, j2 = z. GEO-K uses them with the true mountings. GEO-ID uses the range of motion here (the brief's rule
+until j1, j2 are identified from motion, a *Should* not built).
+
+## 14. Step 2: range of motion, the 3-DoF joints (owned by [mesqsim/estimators/rom.py](../mesqsim/estimators/rom.py))
+
+```text
+J(δ, t) = (q_p·m_p⁻¹)⁻¹·Y(δ)·(q_c·m_c⁻¹)          = s_p⁻¹·s_c when δ = δ_pc
+cost(δ) = Σ_t dist(angles(J(δ, t)), Ω)²           dist = Euclidean distance outside the box (radians), 0 inside
+```
+
+- **Angles:** one intrinsic Cardan sequence per joint in SMPL axes ([anatomy.py](../mesqsim/estimators/anatomy.py)):
+  lower back, neck, hips `XZY` (the ISB Z-X-Y order of Wu et al. 2002: flexion, lateral bending/abduction, axial
+  rotation, rewritten in SMPL axes); shoulders `ZYX` (elevation in the frontal plane, horizontal flexion, axial
+  rotation about the humerus, which is horizontal at SMPL's rest pose); 2-DoF joints their universal-joint order.
+- **Fast form:** Rz(δ) = P + cos δ·(I − P) + sin δ·[e_z]×, so J(δ, t) = M0_t + cos δ·M1_t + sin δ·M2_t; the 1° grid
+  over δ costs a few multiply-adds per sample.
+- **Ω:** per angle the 0.5th and 99.5th percentiles of the **training** subjects' true angles,
+  `python -m mesqsim fit-geometry rom --source amass --write` (0.01° histograms over every training sequence,
+  subsampled to about 30 Hz; `fitted` in [configs/default.yaml](../configs/default.yaml), with the command, data,
+  split hash, frame count and commit in each source note). Before the fit the boxes are unbounded and the
+  range-of-motion windows carry no information.
+- **κ:** the cost is exactly flat for every δ that keeps the motion inside the box, so the curvature at a minimum
+  (Laplace) is zero there and blind to how wide the flat region is. The window's von Mises is therefore fitted to
+  w(δ) ∝ exp(−(cost(δ) − min cost)/(2σ_rom²)) on the grid by matching its circular mean: μ = arg Σ w·e^{iδ},
+  κ = A⁻¹(|Σ w·e^{iδ}| / Σ w). Motion that stays inside the box only rules out δ errors large enough to push the joint
+  out of its range: κ ≈ 2 for a ±10° hip sweep inside a wide box (a 95 % interval of ±104°), exactly 0 without a box
+  (check 26.1). When the motion reaches the limits, δ̂ comes within 1° on noise-free data (0.37°, check 26.1).
+
+## 15. Step 2: GEO-ID's facing and T-pose frames (owned by [mesqsim/estimators/geo.py](../mesqsim/estimators/geo.py))
+
+The range-of-motion cost needs each pod's segment frame, m_i. The T-pose snapshot gives it up to the wearer's
+facing in the room: in the T-pose every segment frame is F_T = Y(φ)·Rx(90°) (the SMPL rest pose, upright, facing φ),
+so with the corrections ĉ_i(T) at the T-pose (box registration), Y(ĉ_i(T))·q_i(T) = Y(−ψ_root)·F_T·m_i and
+m̂_i = F_T⁻¹·Y(ĉ_i(T))·q_i(T) once φ is known. The brief's way to φ is an optional forward arm raise (§5.8, a
+*Should*). This repository gets it from the knees instead, which needs no extra step in the protocol:
+
+1. **Which way the knee axis points.** K = q_p⁻¹·Y(δ̂)·q_c·J_T⁻¹ is the shin's rotation since the T-pose in the
+   thigh pod's frame; for a hinge its rotation vector is θ·(the axis pointing to the body's left), θ > 0 in flexion
+   (SMPL flexes the knee about +x, the left axis). Windows vote with the sign of the median Log(K)·u_p over samples
+   flexed by at least 20° (`geometry.facing_flex_min_deg`).
+2. **Facing.** In the T-pose the left-pointing knee axis is the body's left axis: φ = heading of
+   Y(ĉ_thigh(T))·q_thigh(T)·u_left; with both knees, their circular mean.
+3. **T-pose frames** m̂_i for every pod whose chain from the pelvis had a box prior at the T-pose. A reboot later
+   does not invalidate them: m̂_i describes the strap, not the north.
+
+On synthetic walks (scratch run, fusion noise and the 5° T-pose posture error on) m̂ was within a median 5.4–5.7°
+of the true mountings, about the posture error. Before the knees are identified, GEO-ID's 2-DoF and 3-DoF joints
+hold their box estimate and their κ decays (the brief's rule when facing is not ready).
 

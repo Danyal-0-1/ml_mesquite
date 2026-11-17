@@ -255,3 +255,116 @@ geometry:
       value: 1.0
       label: assumption
       source: "Step 2 brief §5.4, §5.6: kappa scale for range-of-motion windows; 1 until fitted on validation"
+  hinge_sigma_floor_deg:
+    value: 0.5
+    label: assumption
+    source: "Step 2 brief §5.4: floor of the hinge residual spread sigma_hat in kappa = I/sigma_hat^2 (noise-free data would give kappa = infinity); the estimator's belief about fusion tilt error"
+  hinge_model_sigma_deg:
+    value: 2.0
+    label: assumption
+    source: "how far a real knee departs from a hinge within one window: each window's variance is sigma_hat^2/I + this^2 (statistical plus model error). Step 2 brief §5.4 asks to measure the knee's rotation about its other two axes on AMASS train: that measurement should replace this belief"
+  axis_span_s:
+    value: 120.0
+    label: assumption
+    source: "Step 2 brief §5.4 (GEO-ID): hinge axes are identified from the rate pairs of the last 120 s (current boot epochs, from the T-pose on); axes are fixed in the pods, so a long span helps"
+  axis_min_rate_deg_s:
+    value: 20.0
+    label: assumption
+    source: "Step 2 brief §5.4: only rate pairs with |omega_p| + |omega_c| >= 20 deg/s ('enough rotation') enter the axis fit"
+  axis_min_pairs:
+    value: 64
+    label: assumption
+    source: "Step 2 brief §5.4: at least 64 such rate pairs (2 s of motion at 32 Hz) before an axis fit is attempted"
+  axis_max_residual:
+    value: 0.5
+    label: assumption
+    source: "Step 2 brief §5.4: an axis fit is accepted when the RMS of |w_p x u_p| - |w_c x u_c| is at most 0.5 x the RMS rate (0 for an exact hinge)"
+  axis_starts:
+    value: 8
+    label: assumption
+    source: "Step 2 brief §5.4: least squares from 8 fixed starts for the first fit (several starts); later fits warm-start from the previous one plus 2"
+  sign_min_elev_deg:
+    value: 5.0
+    label: assumption
+    source: "Step 2 brief §5.4 sign rule: sum (q_p u_p)_z (q_c u_c)_z votes only when the mean product is at least sin^2(5 deg) (the axis tilted at least 5 deg RMS from horizontal)"
+  tpose_sign_margin_deg:
+    value: 60.0
+    label: assumption
+    source: "Step 2 brief §5.4 Should (knee one-way flexion), realised as a T-pose rule: under the flipped sign the knee would be turned 180 deg since the T-pose; vote when the median angles differ by at least 60 deg"
+  facing_flex_min_deg:
+    value: 20.0
+    label: assumption
+    source: "GEO-ID facing from the knees (substitute for Step 2 brief §5.8): samples whose shin has turned at least 20 deg since the T-pose vote on which way the knee axis points (the knee flexes one way)"
+  twodof_sigma_floor_deg:
+    value: 0.5
+    label: assumption
+    source: "Step 2 brief §5.5: floor of the 2-DoF residual spread, as the dot-product error sin(0.5 deg) of a 0.5 deg axis error"
+  twodof_ambiguity_llr:
+    value: 3.0
+    label: assumption
+    source: "Step 2 brief §5.5 two-minima rule: ambiguous (kappa = 0) when the second minimum is less likely than the best by a factor below e^3 = 20, i.e. its cost exceeds the best by less than 2·sigma_hat^2·3"
+  twodof_model_sigma_deg:
+    value: 3.0
+    label: assumption
+    source: "how far a real elbow, wrist or ankle departs from a 2-DoF joint within one window (window variance += this^2); Step 2 brief §5.5 asks to measure the third-axis rotation on AMASS train"
+  rom_sigma_deg:
+    value: 5.0
+    label: assumption
+    source: "Step 2 brief §5.6: spread of a joint angle about its true value (fusion, T-pose and mounting errors) in the range-of-motion weights exp(-cost/(2 sigma^2))"
+  rom_model_sigma_deg:
+    value: 5.0
+    label: assumption
+    source: "a range-of-motion window cannot pin delta more tightly than the box itself is certain (window variance += this^2)"
+  rom_percentiles:
+    value: [0.5, 99.5]
+    label: assumption
+    source: "Step 2 brief §5.6: Omega = the 0.5th and 99.5th percentiles of the training subjects' true joint angles"
+  rom_limits_deg:
+    lower_back:
+      value: [[-15.44, 69.2], [-22.9, 25.83], [-29.46, 24.47]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (XZY) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    neck:
+      value: [[-49.96, 45.94], [-26.73, 28.04], [-56.61, 57.69]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (XZY) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    l_shoulder:
+      value: [[-126.29, 87.86], [-78.78, 30.38], [-90.26, 90.59]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (ZYX) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    r_shoulder:
+      value: [[-102.05, 126.91], [-30.2, 81.52], [-104.54, 107.83]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (ZYX) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    l_elbow:
+      value: [[-129.07, 0.87], [-40.43, 45.72], [-30.43, 48.31]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (YXZ) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    r_elbow:
+      value: [[-5.05, 130.13], [-42.53, 45.84], [-52.63, 27.28]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (YXZ) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    l_wrist:
+      value: [[-43.04, 61.46], [-37.24, 15.75], [-71.23, 41.06]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (ZYX) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    r_wrist:
+      value: [[-64.26, 52.69], [-18.14, 36.61], [-68.11, 41.76]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (ZYX) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    l_hip:
+      value: [[-84.03, 23.71], [-10.03, 36.34], [-18.13, 14.3]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (XZY) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    r_hip:
+      value: [[-83.26, 19.63], [-32.45, 10.9], [-14.6, 15.96]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (XZY) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    l_ankle:
+      value: [[-39.03, 27.01], [-17.44, 19.02], [-12.47, 22.45]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (XZY) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"
+    r_ankle:
+      value: [[-39.69, 29.06], [-12.12, 21.09], [-23.29, 13.49]]
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry rom --source amass --write` on AMASS (split manifest SHA-256 d36448adb767), training split only: the 0.5th and 99.5th percentiles of the true Cardan angles (XZY) over 1,919,013 frames of 5,974 sequences (subsampled to about 30 Hz); commit 894ba791b452, 2026-11-16"

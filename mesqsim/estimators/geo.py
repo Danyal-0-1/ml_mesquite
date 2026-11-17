@@ -31,9 +31,25 @@ import pandas as pd
 
 from ..body import JOINTS, N_JOINTS, N_PODS
 from ..config import Config
-from ..conventions import circ_mean_rad, heading_rad, wrap_rad
-from .clock import PodSamples, epoch_starts, map_epoch, pair_samples, pod_samples
+from ..conventions import (
+    circ_mean_rad,
+    exp_map,
+    heading_rad,
+    log_map,
+    quat_conj,
+    quat_mean,
+    quat_mul,
+    quat_rotate,
+    wrap_rad,
+    yaw_quat,
+)
+from ..correction import chain_corrections_rad
+from .anatomy import CARDAN_SEQ, HINGE_AXES, TWODOF_AXES
+from .clock import PodSamples, body_rates, epoch_starts, interp_rates, map_epoch, pair_samples, pod_samples
 from .contract import Estimate, GeoTruth
+from .hinge import AxisFit, axis_in_world, hinge_closed_form, identify_hinge_axes, vote_tpose, vote_vertical
+from .rom import UNBOUNDED_DEG, rom_solve
+from .twodof import twodof_solve
 from .vmfilter import JointFilter
 
 __all__ = ["GeoParams", "GeoDiagnostics", "GeoEstimator", "estimate_geo_k", "estimate_geo_id", "JOINT_TYPES_ALL"]
@@ -42,6 +58,8 @@ JOINT_TYPES_ALL = ("hinge", "2dof", "3dof")
 _PARENT = np.array([j.parent for j in JOINTS])
 _CHILD = np.array([j.child for j in JOINTS])
 _JTYPE = np.array([j.jtype for j in JOINTS])
+_UPRIGHT = exp_map([np.pi / 2, 0.0, 0.0])  # Rx(90°): the SMPL body frame upright (body y -> world +Z)
+_KNEES = tuple(k for k, j in enumerate(JOINTS) if j.jtype == "hinge")
 
 
 class GeoParams:
@@ -124,6 +142,7 @@ class GeoEstimator:
 
         t_init = self.phases["box"][1] if "box" in self.phases else self._t_geom_start()
         filt = JointFilter(N_JOINTS, float(self.p["drift_q_rad2_per_s"]))
+        self._filt = filt
         events = self._events(t_init, tq)
         last_w = {"t": [], "delta": [], "kappa": []}  # window estimates, for the no-filter ablation
         for t, kind, arg in events:
@@ -155,8 +174,14 @@ class GeoEstimator:
 
     # ================================================================== events
     def _t_geom_start(self) -> float:
-        """Geometry uses frames from the T-pose on (the pods are strapped on); without one, from the motion on."""
-        for name in ("tpose", "motion"):
+        """Geometry windows use frames from the motion phase on; without one, from the T-pose on.
+
+        The T-pose is a calibration snapshot, not joint mechanics: the wearer holds one posture (a static window
+        repeats one configuration ~256 times and would claim a huge kappa), and that posture's error is unrelated to
+        the joints' axes (in the simulator 5° per segment, which makes the knee non-hinge: GEO-K's knee was 3.3° off
+        with kappa ~1e6 through the T-pose before this rule). The T-pose snapshot itself is still used.
+        """
+        for name in ("motion", "tpose"):
             if name in self.phases:
                 return self.phases[name][0]
         if "box" in self.phases:
@@ -259,6 +284,8 @@ class GeoEstimator:
     def _window(self, t: float) -> tuple[np.ndarray, np.ndarray]:
         """Solve every joint over the window ending at t; returns (delta_w, kappa_w) after calibration."""
         w = self._window_context(t)
+        if self.state.get("tpose") is None and "tpose" in self.phases and t >= self.phases["tpose"][1]:
+            self.state["tpose"] = self._tpose_snapshot()
         d_w, k_w = np.zeros(N_JOINTS), np.zeros(N_JOINTS)
         for j, jt in enumerate(JOINTS):
             if jt.jtype not in self.solve_types:
@@ -268,15 +295,29 @@ class GeoEstimator:
                 continue
             sp, sc = self.samples[p], self.samples[c]
             pairs = pair_samples(w.tau[p], sp.q[w.idx[p]], w.tau[c], sc.q[w.idx[c]], float(self.p["max_pair_gap_s"]))
+            self._detail = {}
             delta, kappa_raw, status = self._solve(j, pairs, w)
             d_w[j] = delta
             k_w[j] = kappa_raw * self.p.kappa_scale(self._solver_type(j))
             if self._diag is not None:
                 self._diag.windows.append({"t_s": t, "joint": j, "n_pairs": len(pairs), "delta_rad": delta,
-                                           "kappa_raw": kappa_raw, "status": status})  # fmt: skip
+                                           "kappa_raw": kappa_raw, "status": status, **self._detail})  # fmt: skip
                 self._diag.pairs.append((t, j, sp.row[w.idx[p]][pairs.ip], sc.row[w.idx[c]][pairs.jc],
                                          sc.row[w.idx[c]][np.minimum(pairs.jc + 1, len(w.idx[c]) - 1)], pairs.u))
         return wrap_rad(d_w), k_w
+
+    def _tpose_snapshot(self) -> dict:
+        """q_i(T): mean of each pod's fresh T-pose samples of its epoch at the T-pose end (Step 0's snapshot, per
+        epoch), and the filter's belief at that moment (box registration plus any T-pose windows)."""
+        a, b = self.phases["tpose"]
+        epochs = self._epochs_at(b)
+        q = np.full((N_PODS, 4), np.nan)
+        for i, s in enumerate(self.samples):
+            sel = (s.t_host_s >= a) & (s.t_host_s <= b) & (s.epoch == epochs[i])
+            if np.any(sel):
+                q[i] = quat_mean(s.q[sel])
+        return {"q": q, "valid": np.isfinite(q[:, 3]), "epochs": epochs, "mu": self._filt.mu.copy(),
+                "kappa": self._filt.kappa.copy(), "t_s": b}  # fmt: skip
 
     def _window_context(self, t: float) -> _Window:
         epochs = self._epochs_at(t)
@@ -294,21 +335,226 @@ class GeoEstimator:
             tau.append(ta[keep])
         return _Window(t, epochs, idx, tau)
 
-    # ================================================================== solvers (filled in per milestone)
+    # ================================================================== solvers
     def _session_start(self) -> None:
-        """Reset per-session state (identified axes, signs, facing)."""
-        self.state: dict = {}
+        """Reset per-session state (identified axes, signs, T-pose reference, facing)."""
+        self.state: dict = {"axes": {}, "sign_tally": {}, "abs_tally": {}, "tpose": None, "facing_rad": None,
+                            "m_hat": None}  # fmt: skip
+        self._rate_cache: dict = {}
 
     def _state_summary(self) -> dict:
-        return dict(self.state)
+        return {"axes": dict(self.state["axes"]), "sign_tally": dict(self.state["sign_tally"]),
+                "abs_tally": dict(self.state["abs_tally"]), "facing_rad": self.state["facing_rad"],
+                "m_hat": self.state["m_hat"]}  # fmt: skip
 
     def _solver_type(self, j: int) -> str:
         """The kappa-calibration class of joint j's solver: its joint type."""
         return str(_JTYPE[j])
 
     def _solve(self, j: int, pairs, w: _Window) -> tuple[float, float, str]:
-        """(delta_w, kappa_raw, status) for joint j over one window. No solver yet: no information."""
-        return 0.0, 0.0, "no_solver"
+        """(delta_w, kappa_raw, status) for joint j over one window."""
+        jtype = _JTYPE[j]
+        if len(pairs) == 0:
+            return 0.0, 0.0, "no_pairs"
+        if jtype == "hinge":
+            return self._hinge_k(j, pairs) if self.mode == "K" else self._hinge_id(j, pairs, w)
+        if self.mode == "K":
+            m = self.truth.mount_q
+            if jtype == "2dof":
+                return self._twodof_k(j, pairs)
+            return self._rom(j, pairs, m[JOINTS[j].parent], m[JOINTS[j].child])
+        # GEO-ID: range of motion at 2-DoF and 3-DoF joints, in T-pose frames (needs the facing)
+        m_hat = self.state["m_hat"]
+        p, c = JOINTS[j].parent, JOINTS[j].child
+        if m_hat is None or not (np.isfinite(m_hat[p, 3]) and np.isfinite(m_hat[c, 3])):
+            return 0.0, 0.0, "no_frames"
+        return self._rom(j, pairs, m_hat[p], m_hat[c])
+
+    # ------------------------------------------------------------------ 2-DoF (GEO-K) and range of motion
+    def _twodof_k(self, j: int, pairs) -> tuple[float, float, str]:
+        j1, j2, gamma = TWODOF_AXES[JOINTS[j].name]
+        u1, u2 = self._true_axes_in_pods(j, (j1, j2))
+        fit = twodof_solve(axis_in_world(pairs.q_p, u1), axis_in_world(pairs.q_c, u2), float(np.cos(gamma)),
+                           float(np.sin(np.deg2rad(self.p["twodof_sigma_floor_deg"]))),
+                           float(self.p["twodof_ambiguity_llr"]))  # fmt: skip
+        self._detail = {"kappa_stat": fit.kappa, "cost": fit.cost, "second_cost": fit.second_cost}
+        status = "ambiguous" if fit.ambiguous else ("ok" if fit.kappa > 0 else "flat")
+        return fit.delta_rad, self._with_model_floor(fit.kappa, "twodof_model_sigma_deg"), status
+
+    def _rom_limits_rad(self, j: int) -> tuple[np.ndarray, np.ndarray] | None:
+        box = self.p.get(f"rom_limits_deg.{JOINTS[j].name}")
+        if box is None or np.allclose(box, UNBOUNDED_DEG):
+            return None
+        b = np.deg2rad(np.asarray(box, dtype=np.float64))
+        return b[:, 0], b[:, 1]
+
+    def _rom(self, j: int, pairs, m_p: np.ndarray, m_c: np.ndarray) -> tuple[float, float, str]:
+        """Range-of-motion window: J(delta) = (q_p·m_p^-1)^-1·Y(delta)·(q_c·m_c^-1) against the fitted box."""
+        lim = self._rom_limits_rad(j)
+        if lim is None:
+            return 0.0, 0.0, "unbounded"
+        a_q = quat_mul(pairs.q_p, quat_conj(m_p))
+        b_q = quat_mul(pairs.q_c, quat_conj(m_c))
+        fit = rom_solve(a_q, b_q, CARDAN_SEQ[JOINTS[j].name], lim[0], lim[1],
+                        float(np.deg2rad(self.p["rom_sigma_deg"])))  # fmt: skip
+        self._detail = {"kappa_stat": fit.kappa, "cost": fit.cost_min, "frac_violating": fit.frac_violating}
+        return fit.delta_rad, self._with_model_floor(fit.kappa, "rom_model_sigma_deg"), (
+            "ok" if fit.kappa > 0 else "flat")
+
+    # ------------------------------------------------------------------ hinge
+    def _hinge_floor_rad(self) -> float:
+        return float(np.deg2rad(self.p["hinge_sigma_floor_deg"]))
+
+    def _with_model_floor(self, kappa_stat: float, key: str) -> float:
+        """Total variance of a window estimate = statistical (1/kappa) + model error (sigma_m²): one window cannot pin
+        delta more tightly than the joint model itself holds (a real knee is not an exact hinge)."""
+        if kappa_stat <= 0:
+            return 0.0
+        sm = float(np.deg2rad(self.p[key]))
+        return float(kappa_stat / (1.0 + kappa_stat * sm * sm))
+
+    def _true_axes_in_pods(self, j: int, seg_axes: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+        """GEO-K: u = m^-1·u_seg in each pod's frame, with the true mountings m (pod -> segment)."""
+        m = self.truth.mount_q
+        jt = JOINTS[j]
+        return quat_rotate(quat_conj(m[jt.parent]), seg_axes[0]), quat_rotate(quat_conj(m[jt.child]), seg_axes[1])
+
+    def _hinge_k(self, j: int, pairs) -> tuple[float, float, str]:
+        u_p, u_c = self._true_axes_in_pods(j, HINGE_AXES[JOINTS[j].name])
+        fit = hinge_closed_form(axis_in_world(pairs.q_p, u_p)[:, :2], axis_in_world(pairs.q_c, u_c)[:, :2],
+                                self._hinge_floor_rad())  # fmt: skip
+        self._detail = {"info": fit.info, "kappa_stat": fit.kappa}
+        return fit.delta_rad, self._with_model_floor(fit.kappa, "hinge_model_sigma_deg"), (
+            "ok" if fit.kappa > 0 else "blind")
+
+    def _pod_rates(self, pod: int, w: _Window) -> tuple[np.ndarray, np.ndarray]:
+        """Body rates of one pod over the identification span (current epoch, from the T-pose on), cached per window."""
+        key = (pod, w.t_s)
+        if key not in self._rate_cache:
+            t_min = max(self._t_geom_start(), w.t_s - float(self.p["axis_span_s"]))
+            idx, tau = map_epoch(self.samples[pod], int(w.epochs[pod]), w.t_s, float(self.p["clock_window_s"]),
+                                 float(self.p["clock_block_s"]), t_min_host_s=t_min)  # fmt: skip
+            self._rate_cache = {k: v for k, v in self._rate_cache.items() if k[1] == w.t_s}
+            self._rate_cache[key] = body_rates(tau, self.samples[pod].q[idx], float(self.p["max_pair_gap_s"]))
+        return self._rate_cache[key]
+
+    def _identify(self, j: int, w: _Window) -> AxisFit | None:
+        """GEO-ID: (re-)identify the hinge axes from the rates since the T-pose; keep the last good fit otherwise."""
+        jt = JOINTS[j]
+        prev = self.state["axes"].get(j)
+        tp, wp = self._pod_rates(jt.parent, w)
+        tc, wc = self._pod_rates(jt.child, w)
+        ok, wc_at_p = interp_rates(tc, wc, tp, float(self.p["max_pair_gap_s"]))
+        wp = wp[ok]
+        strong = np.linalg.norm(wp, axis=1) + np.linalg.norm(wc_at_p, axis=1) >= np.deg2rad(
+            float(self.p["axis_min_rate_deg_s"]))
+        if int(strong.sum()) < int(self.p["axis_min_pairs"]):
+            return prev
+        start = (prev.u_p, prev.u_c) if prev is not None else None
+        fit = identify_hinge_axes(wp[strong], wc_at_p[strong], start=start,
+                                  n_starts=2 if prev is not None else int(self.p["axis_starts"]))  # fmt: skip
+        if fit.rel_residual > float(self.p["axis_max_residual"]):
+            return prev
+        if prev is not None:
+            moved = max(_axis_angle(fit.u_p, prev.u_p), _axis_angle(fit.u_c, prev.u_c))
+            if moved > np.deg2rad(30.0):  # a jump: the sign bookkeeping no longer refers to the same axes
+                self.state["sign_tally"][j] = 0
+        self.state["axes"][j] = fit
+        return fit
+
+    def _tpose_ref(self, j: int) -> np.ndarray | None:
+        """q_p(T)^-1·Y(mu_T)·q_c(T): the pod-to-pod rotation in the T-pose, if both pods have a snapshot and the
+        joint had a box prior at the T-pose (its mu_T is box registration's delta)."""
+        tp = self.state.get("tpose")
+        jt = JOINTS[j]
+        if tp is None or not (tp["valid"][jt.parent] and tp["valid"][jt.child]) or tp["kappa"][j] <= 0:
+            return None
+        return quat_mul(quat_mul(quat_conj(tp["q"][jt.parent]), yaw_quat(tp["mu"][j])), tp["q"][jt.child])
+
+    def _hinge_id(self, j: int, pairs, w: _Window) -> tuple[float, float, str]:
+        axes = self._identify(j, w)
+        if axes is None:
+            return 0.0, 0.0, "no_axes"
+        a3, b3 = axis_in_world(pairs.q_p, axes.u_p), axis_in_world(pairs.q_c, axes.u_c)
+        fit = hinge_closed_form(a3[:, :2], b3[:, :2], self._hinge_floor_rad())
+        votes = vote_vertical(a3, b3, float(np.sin(np.deg2rad(self.p["sign_min_elev_deg"]))) ** 2)
+        ref = self._tpose_ref(j)
+        if ref is not None and fit.kappa > 0:
+            votes += vote_tpose(pairs.q_p, pairs.q_c, fit.delta_rad, ref, np.deg2rad(self.p["tpose_sign_margin_deg"]))
+        tally = self.state["sign_tally"].get(j, 0) + votes
+        self.state["sign_tally"][j] = tally
+        self._detail = {"info": fit.info, "kappa_stat": fit.kappa, "u_p": axes.u_p, "u_c": axes.u_c,
+                        "sign_tally": tally}  # fmt: skip
+        if tally == 0:
+            return fit.delta_rad, 0.0, "ambiguous"
+        delta = fit.delta_rad if tally > 0 else float(wrap_rad(fit.delta_rad + np.pi))
+        if ref is not None and fit.kappa > 0:
+            self._vote_knee_direction(j, pairs, delta, axes.u_p, ref)
+        return delta, self._with_model_floor(fit.kappa, "hinge_model_sigma_deg"), "ok" if fit.kappa > 0 else "blind"
+
+    # ------------------------------------------------------------------ facing and T-pose frames (GEO-ID)
+    def _vote_knee_direction(self, j: int, pairs, delta: float, u_p: np.ndarray, j_tpose: np.ndarray) -> None:
+        """Which way u_p points: the knee only flexes one way (Step 2 brief §5.4 Should).
+
+        K = q_p^-1·Y(delta)·q_c·j_tpose^-1 is the shin's rotation since the T-pose in the thigh pod's frame; for a
+        hinge its rotation vector is theta·(the axis pointing to the body's left), theta > 0 in flexion. The window
+        votes for the sign of the median Log(K)·u_p over samples flexed more than ``facing_flex_min_deg``.
+        """
+        jk = quat_mul(quat_mul(quat_conj(pairs.q_p), yaw_quat(np.full(len(pairs), delta))), pairs.q_c)
+        rv = log_map(quat_mul(jk, quat_conj(j_tpose)))
+        flexed = np.linalg.norm(rv, axis=1) >= np.deg2rad(float(self.p["facing_flex_min_deg"]))
+        if np.any(flexed):
+            vote = int(np.sign(np.median(rv[flexed] @ u_p)))
+            self.state["abs_tally"][j] = self.state["abs_tally"].get(j, 0) + vote
+        self._update_facing()
+
+    def _update_facing(self) -> None:
+        """Facing from the knees: in the T-pose, each knee axis (pointing left) is the body's left-right axis.
+
+        With the corrections at the T-pose (box registration), Y(c_thigh(T))·q_thigh(T)·u_left is the body's left
+        direction in the pelvis pod's north; its heading is the facing phi (the heading of the body's left axis).
+        Then F_T = Y(phi)·Rx(90°) and every pod's segment frame from the T-pose is m_hat_i = F_T^-1·Y(c_i(T))·q_i(T).
+        """
+        tp = self.state["tpose"]
+        if tp is None:
+            return
+        corr = chain_corrections_rad(tp["mu"])
+        ok_chain = self._chain_valid(tp)
+        phis = []
+        for j in _KNEES:
+            axes, tally = self.state["axes"].get(j), self.state["abs_tally"].get(j, 0)
+            thigh = JOINTS[j].parent
+            if axes is None or tally == 0 or not ok_chain[thigh]:
+                continue
+            left = axes.u_p * np.sign(tally)
+            d = quat_rotate(quat_mul(yaw_quat(corr[thigh]), tp["q"][thigh]), left)
+            phis.append(float(np.arctan2(d[1], d[0])))
+        if not phis:
+            return
+        phi = float(circ_mean_rad(np.array(phis)))
+        f_t = quat_mul(yaw_quat(phi), _UPRIGHT)
+        m_hat = np.full((N_PODS, 4), np.nan)
+        for i in range(N_PODS):
+            if ok_chain[i]:
+                m_hat[i] = quat_mul(quat_conj(f_t), quat_mul(yaw_quat(corr[i]), tp["q"][i]))
+        self.state["facing_rad"] = phi
+        self.state["m_hat"] = m_hat
+
+    @staticmethod
+    def _chain_valid(tp: dict) -> np.ndarray:
+        """Pods whose T-pose snapshot exists and whose whole chain from the pelvis had a box prior at the T-pose."""
+        ok = np.zeros(N_PODS, bool)
+        root = [p for p in range(N_PODS) if all(jt.child != p for jt in JOINTS)][0]
+        ok[root] = bool(tp["valid"][root])
+        for k, jt in enumerate(JOINTS):  # parents come first
+            ok[jt.child] = ok[jt.parent] and bool(tp["valid"][jt.child]) and tp["kappa"][k] > 0
+        return ok
+
+
+def _axis_angle(u: np.ndarray, v: np.ndarray) -> float:
+    """Angle between two axes regardless of sign, in [0, pi/2]."""
+    c = abs(float(np.dot(u, v)) / (np.linalg.norm(u) * np.linalg.norm(v)))
+    return float(np.arccos(np.clip(c, 0.0, 1.0)))
 
 
 def estimate_geo_k(series: pd.DataFrame, session: dict, t_query_host_s, cfg: Config, *,

@@ -6,6 +6,7 @@
     params     [--config FILE] [--label assumption]   every parameter with its value, label and source
     split      [--write] [--force]              split AMASS subjects 70/15/15 -> manifests/split_manifest.csv
     dataset    --seed 1 [--source synthetic|amass] [--set ...]   simulate a dataset into a run folder and score it
+    fit-geometry rom [--source amass|synthetic] [--write]   fit the range-of-motion boxes on the training split
     list-runs                                   runs under the output directory
     clean      --run DIR | --all --yes          delete run folders (only run_* folders in the output directory)
 """
@@ -126,6 +127,47 @@ def cmd_dataset(args) -> int:
     return 0
 
 
+def cmd_fit_geometry(args) -> int:
+    """Fit the estimator's data-dependent beliefs on train (Omega); ``--write`` puts them into the config file."""
+    import datetime as dt
+    import json
+
+    from .config import set_leaf_in_file
+    from .dataset import amass_sources, synthetic_sources
+    from .geo_fit import fit_rom, rom_source_note
+    from .paths import manifest_dir
+    from .runs import git_commit
+
+    cfg = load_config(args.config)
+    manifest = manifest_dir() / "split_manifest.csv"
+    if args.what != "rom":
+        print(f"unknown fit {args.what!r}")
+        return 1
+    if args.source == "amass":
+        sources = amass_sources(manifest)
+        sha = (manifest_dir() / "split_manifest.sha256").read_text(encoding="utf-8").split()[0]
+        data = f"AMASS (split manifest SHA-256 {sha[:12]})"
+    else:
+        sources = synthetic_sources()
+        data = "SYNTHETIC stand-in motion (provisional)"
+    res = fit_rom(sources, int(cfg["motion.spine_joint"]), tuple(cfg["geometry.rom_percentiles"]))
+    print(f"{res.n_sequences} training sequences, {res.n_frames:,} frames")
+    print(json.dumps({"limits_deg": res.limits_deg, "knee_off_axis_rms_deg": res.knee_off_axis_rms_deg,
+                      "third_axis_rms_deg": res.third_axis_rms_deg}, indent=1))  # fmt: skip
+    if args.write:
+        command = f"python -m mesqsim fit-geometry rom --source {args.source} --write"
+        date = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
+        note = rom_source_note(command, data, res.n_sequences, res.n_frames, cfg["geometry.rom_percentiles"],
+                               git_commit(), date)  # fmt: skip
+        from .estimators.anatomy import CARDAN_SEQ
+
+        for joint, box in res.limits_deg.items():
+            set_leaf_in_file(args.config, f"geometry.rom_limits_deg.{joint}", box, "fitted",
+                             note.replace("{seq}", CARDAN_SEQ[joint]))  # fmt: skip
+        print(f"wrote {len(res.limits_deg)} boxes into {args.config} (label fitted)")
+    return 0
+
+
 def cmd_list_runs(args) -> int:
     runs = list_runs()
     print(f"{len(runs)} run(s) in {output_dir()}")
@@ -191,6 +233,13 @@ def main(argv=None) -> int:
     d.add_argument("--subjects-per-kind", type=int, default=4)
     d.add_argument("--max-sequences", type=int)
     d.set_defaults(fn=cmd_dataset)
+
+    fg = sub.add_parser("fit-geometry", help="fit the estimator's beliefs on train/validation (never test)")
+    fg.add_argument("what", choices=["rom"])
+    fg.add_argument("--config", default=str(DEFAULT_CONFIG))
+    fg.add_argument("--source", choices=["amass", "synthetic"], default="amass")
+    fg.add_argument("--write", action="store_true", help="write the fitted values into the config (label fitted)")
+    fg.set_defaults(fn=cmd_fit_geometry)
 
     lr = sub.add_parser("list-runs", help="list run folders")
     lr.set_defaults(fn=cmd_list_runs)
