@@ -1569,3 +1569,37 @@ def _diodem_geo(quick: bool) -> CheckResult:
                        f"{np.nanmedian(err):.2f}° (P95 {np.nanpercentile(err, 95):.2f}°, first information after "
                        f"{r['t_first_info_s']:.1f} s) against {np.nanmedian(ref):.2f}° for a perfect registration at "
                        f"the start (end {ref[-1]:.1f}°)", ok)  # fmt: skip
+
+
+@register(
+    "33.1",
+    "Reproducibility: the same config and seed give an identical RESULTS_STEP2.md apart from its Run line",
+    "Run `scripts/make_results_step2.py --source synthetic --max-sequences 1 --no-sweeps --no-diodem` twice into "
+    "temporary files (seed 1; 6 test sessions) and compare them line by line, except the line starting '**Run:**' "
+    "(date, CPU, wall time and compute time live there and nowhere else).",
+    "Every table must be traceable to (commit, config, seed); worker scheduling, dictionary order or a random "
+    "start must not change a number (brief §8 item 13).",
+    "identical apart from the Run line",
+    "python scripts/make_results_step2.py --source synthetic --max-sequences 1 --no-sweeps --no-diodem",
+)
+def _results_repro(quick: bool) -> CheckResult:
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    from .paths import REPO_ROOT
+
+    texts = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for k in range(2):
+            out = Path(tmp) / f"r{k}.md"
+            subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "make_results_step2.py"), "--source",
+                            "synthetic", "--max-sequences", "1", "--no-sweeps", "--no-diodem", "--n-boot", "2000",
+                            "--out", str(out), "--figdir", str(Path(tmp) / f"fig{k}")], check=True,
+                           capture_output=True)  # fmt: skip
+            texts.append([ln for ln in out.read_text(encoding="utf-8").split("\n") if not ln.startswith("**Run:**")])
+    diff = [i for i, (a, b) in enumerate(zip(*texts, strict=False)) if a != b]
+    same = not diff and len(texts[0]) == len(texts[1])
+    return CheckResult(f"{len(texts[0])} lines compared; identical apart from the Run line: {same}"
+                       + (f" (first difference at line {diff[0] + 1})" if diff else ""), same)

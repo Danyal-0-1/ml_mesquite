@@ -110,13 +110,16 @@ CALIBRATED = ("kappa_scale", "model_sigma_deg")
 
 
 def calibration_worker(job: dict, cfg) -> dict:
-    """One validation session: GEO-ID's filter events, its window estimates with the truth at each window end, and
-    the motion-phase query times with their truth. Scorer side (reads the labels)."""
+    """One validation session: the estimator's filter events (GEO-ID, or GEO-K when ``job["estimator"] == "K"``), its
+    window estimates with the truth at each window end, and the motion-phase query times with their truth. Scorer
+    side (reads the labels)."""
+    from .estimators.contract import GeoTruth
     from .estimators.geo import GeoEstimator
     from .geo_sessions import simulate_job
 
     d, series, host, grid = simulate_job(job, cfg)
-    _, diag = GeoEstimator(cfg).run(series, d.session, host, diagnostics=True)
+    truth = GeoTruth.from_meta(d.meta) if job.get("estimator") == "K" else None
+    _, diag = GeoEstimator(cfg, truth).run(series, d.session, host, diagnostics=True)
     mot = grid.phase == "motion"
     wins = diag.windows
     t_w = np.array([r["t_s"] for r in wins])

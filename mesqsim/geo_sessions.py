@@ -30,11 +30,12 @@ def dataset_jobs(cfg: Config, sources: pd.DataFrame, run_seed: int, splits=("val
     starts = [float(m) for m in (motion_start_min or cfg["dataset.motion_start_min"])]
     per_seq = int(windows_per_sequence or cfg["dataset.windows_per_sequence"])
     chosen = sources[sources["split"].isin(splits)].sort_values("path", ignore_index=True)
-    if max_sequences is not None:
-        chosen = chosen.head(max_sequences)
-    jobs = []
+    jobs, used = [], 0
     for _, src in chosen.iterrows():
+        if max_sequences is not None and used >= max_sequences:  # the cap counts sequences that yield sessions
+            break
         n_win = _n_windows(src["path"], window_s, int(cfg["motion.spine_joint"]), MotionSource)
+        used += n_win > 0
         for w in range(min(n_win, per_seq)):
             for m in starts:
                 for v in range(int(cfg["dataset.variants"])):
@@ -54,8 +55,8 @@ def _n_windows(path: str, window_s: float, spine_joint: int, motion_cls) -> int:
     return max(0, (n - 1) // int(round(window_s * fps)))
 
 
-def simulate_job(job: dict, cfg: Config):
-    """Simulate one job's session in memory; returns (SessionData, series, query host times, Grid)."""
+def simulate_job(job: dict, cfg: Config, with_clip: bool = False):
+    """Simulate one job's session in memory; returns (SessionData, series, query host times, Grid[, clip])."""
     from . import evaluate as ev
     from . import step0
     from .sim.motion import MotionSource
@@ -67,7 +68,8 @@ def simulate_job(job: dict, cfg: Config):
     d = simulate_session(cfg_s, int(job["seed"]), clip)
     series = step0.decode(d.frames, d.session)
     grid = ev.Grid(d.labels_joints)
-    return d, series, grid.t_s + d.meta["plan"]["host_epoch_s"], grid
+    host = grid.t_s + d.meta["plan"]["host_epoch_s"]
+    return (d, series, host, grid, clip) if with_clip else (d, series, host, grid)
 
 
 def _worker(args):

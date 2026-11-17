@@ -81,8 +81,9 @@ def test_replay_reproduces_the_estimator_exactly(stress_session, variant):
     geo = GeoEstimator(CFG, truth, use_filter=variant != "nofilter")
     est, diag = geo.run(series, d.session, host, diagnostics=True)
     p = GeoParams(CFG)
-    mu, kap, defined = replay(diag.events, host, float(CFG["geometry.drift_q_rad2_per_s"]), p.scales(),
-                              p.model_sigmas_rad(), p.weight(variant != "nofilter"), variant != "nofilter")
+    mode = "K" if variant == "K" else "ID"
+    mu, kap, defined = replay(diag.events, host, float(CFG["geometry.drift_q_rad2_per_s"]), p.scales(mode),
+                              p.model_sigmas_rad(mode), p.weight(variant != "nofilter"), variant != "nofilter")
     after = defined & (host >= diag.events.t_init)
     assert np.array_equal(wrap_rad(mu[after]), est.delta_rad[after]) and np.array_equal(kap[after], est.kappa[after])
 

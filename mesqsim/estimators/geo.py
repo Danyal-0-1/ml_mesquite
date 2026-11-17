@@ -142,14 +142,17 @@ class GeoParams:
         except KeyError:
             return default
 
-    def kappa_scale(self, jtype: str) -> float:
-        return float(self[f"kappa_scale.{jtype}"])
+    def kappa_scale(self, jtype: str, mode: str = "ID") -> float:
+        return float(self[f"kappa_scale{'_k' if mode == 'K' else ''}.{jtype}"])
 
-    def scales(self) -> dict:
-        return {t: self.kappa_scale(t) for t in JOINT_TYPES_ALL}
+    def scales(self, mode: str = "ID") -> dict:
+        """Window kappa scales per joint type: GEO-ID's (``kappa_scale``) or GEO-K's (``kappa_scale_k``); each is
+        fitted on validation with its own estimator, because their solvers differ (GEO-K: 2-DoF constraint)."""
+        return {t: self.kappa_scale(t, mode) for t in JOINT_TYPES_ALL}
 
-    def model_sigmas_rad(self) -> dict:
-        return {t: float(np.deg2rad(self[f"model_sigma_deg.{t}"])) for t in JOINT_TYPES_ALL}
+    def model_sigmas_rad(self, mode: str = "ID") -> dict:
+        key = "model_sigma_deg_k" if mode == "K" else "model_sigma_deg"
+        return {t: float(np.deg2rad(self[f"{key}.{t}"])) for t in JOINT_TYPES_ALL}
 
     def weight(self, use_filter: bool) -> float:
         return float(self["step_s"]) / float(self["window_s"]) if use_filter else 1.0
@@ -218,7 +221,8 @@ class GeoEstimator:
         t_init = self.phases["box"][1] if "box" in self.phases else self._t_geom_start()
         filt = JointFilter(N_JOINTS, float(self.p["drift_q_rad2_per_s"]))
         self._filt = filt  # the live belief: read once, at the end of the T-pose (box registration's delta)
-        scales, sigmas, weight = self.p.scales(), self.p.model_sigmas_rad(), self.p.weight(self.use_filter)
+        scales, sigmas = self.p.scales(self.mode), self.p.model_sigmas_rad(self.mode)
+        weight = self.p.weight(self.use_filter)
         log: list = []
         self.box_delta_rad = np.zeros(N_JOINTS)
         for t, kind, arg in self._events(t_init, tq):

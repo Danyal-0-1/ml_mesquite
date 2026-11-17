@@ -188,13 +188,17 @@ def _fit_calibration(args, cfg, manifest) -> int:
         sources = synthetic_sources()
         data = "SYNTHETIC stand-in motion (provisional)"
     jobs = dataset_jobs(cfg, sources, args.seed, splits=("val",), max_sequences=args.max_sequences)
-    print(f"{len(jobs)} validation sessions from {len({j['path'] for j in jobs})} sequences; seed {args.seed}")
+    for j in jobs:
+        j["estimator"] = args.estimator
+    print(f"{len(jobs)} validation sessions from {len({j['path'] for j in jobs})} sequences; seed {args.seed}; "
+          f"GEO-{args.estimator}")
     results = run_jobs(calibration_worker, jobs, args.config)
     w = float(cfg["geometry.step_s"]) / float(cfg["geometry.window_s"])
-    sig0 = {t: float(cfg[f"geometry.model_sigma_deg.{t}"]) for t in ("hinge", "2dof", "3dof")}
+    suffix = "_k" if args.estimator == "K" else ""
+    sig0 = {t: float(cfg[f"geometry.model_sigma_deg{suffix}.{t}"]) for t in ("hinge", "2dof", "3dof")}
     fit = fit_calibration(results, w, sig0, hold_target_p95_deg=float(cfg["geometry.hold_target_p95_deg"]))
     commit = git_commit()
-    out = output_dir() / f"fit_calibration_g{commit.split('+')[0][:7]}_{args.source}_s{args.seed}"
+    out = output_dir() / f"fit_calibration_g{commit.split('+')[0][:7]}_{args.source}_s{args.seed}_{args.estimator}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(fit, indent=1), encoding="utf-8")
     print(json.dumps({k: fit[k] for k in ("kappa_scale", "model_sigma_deg", "fitted_how", "drift_q_rad2_per_s",
@@ -202,17 +206,24 @@ def _fit_calibration(args, cfg, manifest) -> int:
                                           "certain_fraction", "coverage", "n_sessions", "n_steps")}, indent=1))
     print(f"report: {out / 'report.json'}")
     if args.write:
-        command = f"python -m mesqsim fit-geometry calibration --source {args.source} --seed {args.seed} --write"
+        command = (f"python -m mesqsim fit-geometry calibration --source {args.source} --seed {args.seed} "
+                   f"--estimator {args.estimator} --write")
         n_subj = len({(j["subset"], j["subject"]) for j in jobs})
         note = (f"fitted by `{command}` on {data}, validation split only: {fit['n_sessions']} sessions of "
-                f"{len({j['path'] for j in jobs})} sequences, {n_subj} subjects, GEO-ID; commit {commit[:12]}, "
+                f"{len({j['path'] for j in jobs})} sequences, {n_subj} subjects, GEO-{args.estimator}; "
+                f"commit {commit[:12]}, "
                 f"{dt.datetime.now(dt.UTC).strftime('%Y-%m-%d')}")
         for t in ("hinge", "2dof", "3dof"):
-            set_leaf_in_file(args.config, f"geometry.kappa_scale.{t}", round(fit["kappa_scale"][t], 6), "fitted",
-                             f"{note}: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))")
+            set_leaf_in_file(args.config, f"geometry.kappa_scale{suffix}.{t}", round(fit["kappa_scale"][t], 6),
+                             "fitted", f"{note}: maximum likelihood of the window errors under "
+                                       "VM(0, s·k/(1 + k·sigma_m^2))")
             if fit["fitted_how"][t] == "scale+sigma":
-                set_leaf_in_file(args.config, f"geometry.model_sigma_deg.{t}", round(fit["model_sigma_deg"][t], 4),
-                                 "fitted", f"{note}: maximum likelihood, jointly with kappa_scale.{t}")
+                set_leaf_in_file(args.config, f"geometry.model_sigma_deg{suffix}.{t}",
+                                 round(fit["model_sigma_deg"][t], 4), "fitted",
+                                 f"{note}: maximum likelihood, jointly with kappa_scale{suffix}.{t}")
+        if args.estimator == "K":  # q and kappa_hold are GEO-ID's (the deployable estimator), shared by GEO-K
+            print(f"wrote GEO-K's calibration into {args.config} (label fitted)")
+            return 0
         set_leaf_in_file(args.config, "geometry.drift_q_rad2_per_s", float(f"{fit['drift_q_rad2_per_s']:.4g}"),
                          "fitted", f"{note}: the log-grid value with the largest von Mises log-likelihood of the "
                                    "filter's outputs at every motion-phase 32 Hz step")  # fmt: skip
@@ -293,6 +304,8 @@ def main(argv=None) -> int:
     fg.add_argument("what", choices=["rom", "calibration"])
     fg.add_argument("--seed", type=int, default=1, help="run seed of the dataset sessions (calibration)")
     fg.add_argument("--max-sequences", type=int, default=None, help="cap on validation sequences (calibration)")
+    fg.add_argument("--estimator", choices=["ID", "K"], default="ID",
+                    help="calibrate GEO-ID (default; also q and kappa_hold) or GEO-K's own window scales")
     fg.add_argument("--config", default=str(DEFAULT_CONFIG))
     fg.add_argument("--source", choices=["amass", "synthetic"], default="amass")
     fg.add_argument("--write", action="store_true", help="write the fitted values into the config (label fitted)")
