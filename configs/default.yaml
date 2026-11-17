@@ -238,6 +238,10 @@ geometry:
     value: 1.0e-5
     label: assumption
     source: "Step 2 brief §5.7: heading diffusion of a joint's relative heading, rad^2/s: 1.4 deg after 1 min, 4.4 deg after 10 min, 7.7 deg after 30 min (the order of Step 1's O1 errors, docs/RESULTS_STEP1.md Table 1); to be fitted on validation"
+  hold_target_p95_deg:
+    value: 10.0
+    label: assumption
+    source: "Step 2 brief §5.7 hold rule: kappa_hold is fitted on validation as the smallest threshold whose retained steps (kappa >= it) have a 95th-percentile error of at most 10 deg"
   kappa_hold:
     value: 33.0
     label: assumption
@@ -255,14 +259,23 @@ geometry:
       value: 1.0
       label: assumption
       source: "Step 2 brief §5.4, §5.6: kappa scale for range-of-motion windows; 1 until fitted on validation"
+  model_sigma_deg:
+    hinge:
+      value: 2.0
+      label: assumption
+      source: "how far a real knee departs from a hinge within one window: each window's variance is sigma_hat^2/I + this^2 (statistical plus model error). Step 2 brief §5.4 asks to measure the knee's rotation about its other two axes on AMASS train: that measurement should replace this belief"
+    2dof:
+      value: 3.0
+      label: assumption
+      source: "how far a real elbow, wrist or ankle departs from a 2-DoF joint within one window (window variance += this^2); Step 2 brief §5.5 asks to measure the third-axis rotation on AMASS train"
+    3dof:
+      value: 5.0
+      label: assumption
+      source: "a range-of-motion window cannot pin delta more tightly than the box itself is certain (window variance += this^2)"
   hinge_sigma_floor_deg:
     value: 0.5
     label: assumption
     source: "Step 2 brief §5.4: floor of the hinge residual spread sigma_hat in kappa = I/sigma_hat^2 (noise-free data would give kappa = infinity); the estimator's belief about fusion tilt error"
-  hinge_model_sigma_deg:
-    value: 2.0
-    label: assumption
-    source: "how far a real knee departs from a hinge within one window: each window's variance is sigma_hat^2/I + this^2 (statistical plus model error). Step 2 brief §5.4 asks to measure the knee's rotation about its other two axes on AMASS train: that measurement should replace this belief"
   axis_span_s:
     value: 120.0
     label: assumption
@@ -303,18 +316,10 @@ geometry:
     value: 3.0
     label: assumption
     source: "Step 2 brief §5.5 two-minima rule: ambiguous (kappa = 0) when the second minimum is less likely than the best by a factor below e^3 = 20, i.e. its cost exceeds the best by less than 2·sigma_hat^2·3"
-  twodof_model_sigma_deg:
-    value: 3.0
-    label: assumption
-    source: "how far a real elbow, wrist or ankle departs from a 2-DoF joint within one window (window variance += this^2); Step 2 brief §5.5 asks to measure the third-axis rotation on AMASS train"
   rom_sigma_deg:
     value: 5.0
     label: assumption
     source: "Step 2 brief §5.6: spread of a joint angle about its true value (fusion, T-pose and mounting errors) in the range-of-motion weights exp(-cost/(2 sigma^2))"
-  rom_model_sigma_deg:
-    value: 5.0
-    label: assumption
-    source: "a range-of-motion window cannot pin delta more tightly than the box itself is certain (window variance += this^2)"
   rom_percentiles:
     value: [0.5, 99.5]
     label: assumption
