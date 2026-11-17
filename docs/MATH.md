@@ -1,6 +1,6 @@
 # The mathematics
 
-*Status: S2-M5. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections §9–§17 (clock, von Mises, events, hinge, 2-DoF, range of motion, facing, calibration, DIODEM).*
+*Status: S2-M6. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections §9–§18 (clock, von Mises, events, hinge, 2-DoF, range of motion, facing, calibration, DIODEM, results statistics).*
 
 ## 1. Picture first
 
@@ -316,6 +316,11 @@ The tie fixes the relative sign. Same 60 sessions: knee windows median 6.6°, P9
 5.8° (max 19.1°) from the truth; GEO-K, with the true axis, has median 5.2°, P95 14.1° (the SMPL knee is not an exact
 hinge). Only 804 of 2,400 knee windows had an identifiable axis: in non-walking sequences the estimator holds the
 box estimate instead of guessing. Without a T-pose (DIODEM) the free fit is used, with the same contrast test.
+
+**GEO-K has its own calibration** (`geometry.kappa_scale_k.*`, `model_sigma_deg_k.*`, fitted with
+`fit-geometry calibration --estimator K`): its solvers differ from GEO-ID's (known axes; the 2-DoF constraint where
+GEO-ID uses the range of motion). With GEO-ID's calibration its 2-DoF windows were overconfident (a 12-sequence AMASS
+trial: P95 89°, 68 %/95 % coverage 0.25/0.45). q and κ_hold are GEO-ID's and shared.
 On a synthetic walk every window voted for the right sign; identified axes were within 0.02°–0.98° of the truth
 with fusion noise on (scratch run, 4 sessions) and within 0.001° on noise-free motion (check 24.1).
 
@@ -439,4 +444,27 @@ target (within ±5 points of 68 and 95) is a result to be measured on **test**, 
   24.5°). The knee calibration from AMASS (one window ≈ 8.5°) is pessimistic for DIODEM's near-perfect mechanical
   hinge, so the filter follows the fast six-axis drift (about 30°/min at first) more slowly: a transfer effect,
   reported per experiment in [RESULTS_STEP2.md](RESULTS_STEP2.md). Mechanical chains: no claim about people.
+
+## 18. Step 2: the results' metrics and statistics (owned by [mesqsim/results_step2.py](../mesqsim/results_step2.py))
+
+- **Primary metric:** |wrap(δ̂ − δ)| per joint and motion-phase 32 Hz step, in degrees; mean, median, P95.
+  **Secondary:** the geodesic angle of the joint's error rotation with the true mountings (§7).
+- **Coverage:** the share of steps whose error lies inside the central von Mises interval of the reported κ,
+  h(κ, level) (§10), for 68 % and 95 %. A **reliability diagram** plots it against the nominal level.
+- **Selective risk:** sort the steps by κ, keep the top share f, report the median and P95 error of the kept steps;
+  a confidence that tracks accuracy makes the error fall as f shrinks.
+- **Strata.** Joint type and joint; minutes since boot (1, 10, 30: the dataset's motion starts); **excitation**,
+  computed by the scorer from the truth per session and joint — hinge and 2-DoF joints: the standard deviation of the
+  joint's main Cardan angle over the motion (how much it moved, which is what identification and the 2-DoF constraint
+  need); 3-DoF joints: the share of frames within 5° of an edge of Ω or outside it (what the range of motion needs) —
+  cut into terciles within each joint type; conditions (one-at-a-time sweeps); seconds since a reboot.
+- **The unit** is the held-out subject (subset, subject id). For a contrast, each subject contributes one number per
+  method: the median error over all its test sessions' steps and (session, joint) cells in the stratum. The paired
+  difference d_s = GEO-ID − B1 is resampled over subjects with replacement (10,000 resamples, fixed seed):
+  **95 % percentile interval** of the mean of d, and a two-sided bootstrap p = 2·min(P(mean* ≤ 0), P(mean* ≥ 0)).
+- **Holm** across C1–C3: sort the p-values, multiply the i-th smallest by (m − i + 1), make them non-decreasing.
+- **H2's contrasts** (analysis plan §8, at 10 min since boot; Δ = 1°, proposed): C1 hinge and C2 2-DoF in the upper two
+  excitation terciles ("walking and arm motion"; plan §9 option 1): supported if the interval lies below 0 and the
+  mean improvement exceeds Δ; C3 3-DoF over all motion ("everyday"): supported if the improvement's upper bound stays
+  below Δ. While the split and the plan are not frozen the verdicts are **descriptive**.
 

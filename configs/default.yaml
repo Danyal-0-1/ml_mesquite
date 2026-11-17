@@ -274,30 +274,30 @@ geometry:
       source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: maximum likelihood, jointly with kappa_scale.3dof"
   kappa_scale_k:
     hinge:
-      value: 1.0
-      label: assumption
-      source: "GEO-K's own window kappa scale per joint type (its solvers differ from GEO-ID's: known axes, the 2-DoF constraint, range of motion with true mountings); 1 until fitted on validation by `python -m mesqsim fit-geometry calibration --estimator K`"
+      value: 0.013995
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     2dof:
-      value: 1.0
-      label: assumption
-      source: "GEO-K's own window kappa scale for 2-DoF joints; 1 until fitted on validation"
+      value: 0.003916
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     3dof:
-      value: 1.0
-      label: assumption
-      source: "GEO-K's own window kappa scale for 3-DoF joints; 1 until fitted on validation"
+      value: 3.496186
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
   model_sigma_deg_k:
     hinge:
-      value: 2.0
-      label: assumption
-      source: "GEO-K's model error per window at the knee (window variance += this^2); until fitted on validation"
+      value: 0.7314
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.hinge"
     2dof:
-      value: 3.0
-      label: assumption
-      source: "GEO-K's model error per window at 2-DoF joints; until fitted on validation"
+      value: 2.2574
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.2dof"
     3dof:
-      value: 5.0
-      label: assumption
-      source: "GEO-K's model error per window at 3-DoF joints; until fitted on validation"
+      value: 11.2869
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.3dof"
   hinge_sigma_floor_deg:
     value: 0.5
     label: assumption

@@ -1,6 +1,6 @@
 # Pipeline
 
-*Status: S2-M5. Every stage, from one session to a dataset of sessions and the results tables; Step 2's estimator stage (§7) with its fitted beliefs (§8) and DIODEM (§9).*
+*Status: S2-M6. Every stage, from one session to the Step 1 and Step 2 results: Step 2's estimator stage (§7), its fitted beliefs (§8), DIODEM (§9) and the results (§10).*
 
 ## Picture first
 
@@ -28,6 +28,8 @@ frames.parquet + session.json ─► STEP 0 ─► series.parquet ─► baselin
 | simulate and score a dataset | `python -m mesqsim dataset --seed 1 --source amass\|synthetic` | run folder with `sessions/`, `dataset.csv`, `results/` |
 | results tables and figures | `python scripts/make_results.py` | `docs/RESULTS_STEP1.md`, `docs/figures/results_*.png` |
 | fit the range-of-motion boxes (train only) | `python -m mesqsim fit-geometry rom --source amass --write` | `geometry.rom_limits_deg.<joint>` in `configs/default.yaml`, label `fitted` |
+| Step 2 results tables and figures | `python scripts/make_results_step2.py` | `docs/RESULTS_STEP2.md`, `docs/figures/results_step2_*.png` |
+| fit GEO-K's own window calibration (validation only) | `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` | `geometry.kappa_scale_k.*`, `geometry.model_sigma_deg_k.*` |
 | fit the confidence, q and κ_hold (validation only) | `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` | `geometry.kappa_scale.*`, `geometry.model_sigma_deg.*`, `geometry.drift_q_rad2_per_s`, `geometry.kappa_hold` (label `fitted`); `$MESQ_OUTPUT_DIR/fit_calibration_g<commit>_amass_s1/report.json` |
 | list runs | `python -m mesqsim list-runs` | |
 | delete runs | `python -m mesqsim clean --run <folder>` or `clean --all --yes` | |
@@ -189,4 +191,16 @@ Code: `mesqsim/evaluate.py`, `mesqsim/pipeline.py`.
   truth from the optical frames ([MATH.md §17](MATH.md)).
 - **Out:** per experiment and hinge, the error summaries (in RESULTS_STEP2), and the figure
   `docs/figures/diodem_geo_hinge.png` (check 32.1).
+
+### 10. The Step 2 results (`scripts/make_results_step2.py`, `mesqsim/results_step2.py`)
+
+- **In:** the split manifest (AMASS, else synthetic stand-ins, labelled PROVISIONAL), `configs/default.yaml` (with its
+  fitted beliefs), the DIODEM download.
+- **What runs:** the dataset's **test** sessions (windows × motion starts 1, 10, 30 min; the dataset's own seeds),
+  simulated, decoded and scored in memory in worker processes: B0, B1, O1, O2, GEO-K, GEO-ID, GEO-ID-nofilter,
+  GEO-ID-hinge, GEO-ID-w4, GEO-ID-w16. Then one-at-a-time sweeps at 10 min (B1, O1, O2, GEO-K, GEO-ID), the
+  re-acquisition after reboots, and GEO-ID on every DIODEM hinge with the fitted and the assumed beliefs.
+- **Out:** `docs/RESULTS_STEP2.md` (tables 1–10, H2's contrasts) and `docs/figures/results_step2_{growth,reliability,
+  selective,sweeps,reboot}.png`. Nothing is written per session. The same config and seed give an identical file
+  apart from its **Run** line, which holds the date, CPU, wall time and compute time (check 33.1).
 
