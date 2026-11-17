@@ -241,7 +241,7 @@ geometry:
   hold_target_p95_deg:
     value: 10.0
     label: assumption
-    source: "Step 2 brief §5.7 hold rule: kappa_hold is fitted on validation as the smallest threshold whose retained steps (kappa >= it) have a 95th-percentile error of at most 10 deg"
+    source: "Step 2 brief §5.7 hold rule: kappa_hold is fitted on validation as the smallest threshold whose retained steps (kappa >= it) have a 95th-percentile error of at most 10 deg; if none does, the threshold with the smallest retained P95 that keeps at least 10 % of steps"
   kappa_hold:
     value: 125.8925
     label: fitted

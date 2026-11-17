@@ -202,7 +202,7 @@ def _fit_calibration(args, cfg, manifest) -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(fit, indent=1), encoding="utf-8")
     print(json.dumps({k: fit[k] for k in ("kappa_scale", "model_sigma_deg", "fitted_how", "drift_q_rad2_per_s",
-                                          "kappa_hold",
+                                          "kappa_hold", "hold_rule", "hold_p95_deg",
                                           "certain_fraction", "coverage", "n_sessions", "n_steps")}, indent=1))
     print(f"report: {out / 'report.json'}")
     if args.write:
@@ -227,9 +227,13 @@ def _fit_calibration(args, cfg, manifest) -> int:
         set_leaf_in_file(args.config, "geometry.drift_q_rad2_per_s", float(f"{fit['drift_q_rad2_per_s']:.4g}"),
                          "fitted", f"{note}: the log-grid value with the largest von Mises log-likelihood of the "
                                    "filter's outputs at every motion-phase 32 Hz step")  # fmt: skip
+        target = cfg["geometry.hold_target_p95_deg"]
+        rule = (f"the smallest threshold whose retained steps have P95 error <= {target:g} deg"
+                if fit["hold_rule"] == "target" else
+                f"no threshold reached P95 <= {target:g} deg, so the one with the smallest retained P95 "
+                f"({fit['hold_p95_deg']:.2f} deg) keeping at least 10 % of steps")  # fmt: skip
         set_leaf_in_file(args.config, "geometry.kappa_hold", round(fit["kappa_hold"], 4), "fitted",
-                         f"{note}: the smallest threshold whose retained steps have P95 error <= "
-                         f"{cfg['geometry.hold_target_p95_deg']:g} deg")  # fmt: skip
+                         f"{note}: {rule}; {100 * fit['certain_fraction']:.1f} % of validation steps certain")
         print(f"wrote the calibration into {args.config} (label fitted)")
     return 0
 

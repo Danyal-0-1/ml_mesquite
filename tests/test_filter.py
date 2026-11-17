@@ -115,3 +115,19 @@ def test_geo_id_equals_b1_on_noise_free_motion_without_information():
     err_b1 = np.abs(wrap_rad(b1[mot] - grid.delta_rad[mot]))
     assert np.all(err_geo <= err_b1 + 1e-12)
     assert len(JOINTS) == err_geo.shape[1]
+
+
+def test_kappa_hold_meets_the_target_or_falls_back_to_the_smallest_tail():
+    """kappa_hold (S2-M6): the smallest threshold whose retained steps have P95 <= target; otherwise the threshold
+    with the smallest retained P95 that keeps at least 10 % of the steps."""
+    from mesqsim.geo_fit import fit_hold
+
+    rng = np.random.default_rng(3)
+    kappa = rng.uniform(0.0, 200.0, 20_000)
+    err = np.abs(rng.normal(0.0, 1.0, kappa.size)) / np.sqrt(np.maximum(kappa, 1.0))  # sharper with kappa
+    thr, kept, p95, rule = fit_hold(err, kappa, np.deg2rad(10.0))
+    assert rule == "target" and np.percentile(err[kappa >= thr], 95) <= np.deg2rad(10.0) and 0 < kept < 1
+    # a floor of 0.2 rad under every error: no threshold reaches 10 deg; the smallest retained tail is taken
+    thr, kept, p95, rule = fit_hold(err + 0.2, kappa, np.deg2rad(10.0))
+    assert rule == "smallest P95" and kept >= 0.10 and p95 > np.deg2rad(10.0)
+    assert p95 == pytest.approx(np.percentile((err + 0.2)[kappa >= thr], 95))

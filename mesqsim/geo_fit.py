@@ -181,6 +181,33 @@ def _replay_all(results: list, q: float, scales: dict, sigmas_rad: dict, weight:
         np.concatenate([j.ravel() for j in joints])  # fmt: skip
 
 
+HOLD_MIN_KEPT = 0.10
+"""kappa_hold's fallback keeps at least this share of validation steps certain."""
+
+
+def fit_hold(err_rad: np.ndarray, kappa: np.ndarray, target_rad: float) -> tuple[float, float, float, str]:
+    """``(kappa_hold, kept share, retained P95 (rad), rule)`` from steps' errors and kappas (validation).
+
+    The smallest threshold on a log grid whose retained steps (kappa >= it) have a P95 error <= ``target_rad``
+    (rule "target"); if none, the one with the smallest retained P95 among those keeping at least
+    :data:`HOLD_MIN_KEPT` (rule "smallest P95"); if not even that, the grid's top with nothing kept ("none").
+    """
+    thr_grid = np.r_[0.0, 10.0 ** np.arange(-1.0, 6.01, 0.05)]
+    best = None  # (P95, threshold, kept) with the smallest P95 among thresholds keeping >= HOLD_MIN_KEPT
+    for thr in thr_grid:
+        sel = kappa >= thr
+        if sel.mean() < 0.01:
+            break
+        p95 = float(np.percentile(err_rad[sel], 95))
+        if p95 <= target_rad:
+            return float(thr), float(sel.mean()), p95, "target"
+        if sel.mean() >= HOLD_MIN_KEPT and (best is None or p95 < best[0]):
+            best = (p95, float(thr), float(sel.mean()))
+    if best is not None:
+        return best[1], best[2], best[0], "smallest P95"
+    return float(thr_grid[-1]), 0.0, float("nan"), "none"
+
+
 def fit_calibration(results: list, weight: float, sigma_assumed_deg: dict, q_grid=None,
                     hold_target_p95_deg: float = 10.0, log=print) -> dict:  # fmt: skip
     """Fit the window calibration per joint type, then q, then kappa_hold, on validation sessions (GEO-ID).
@@ -190,7 +217,10 @@ def fit_calibration(results: list, weight: float, sigma_assumed_deg: dict, q_gri
     2. drift_q_rad2_per_s: the value on a log grid that maximises the von Mises log-likelihood of the filter's
        outputs at every motion-phase 32 Hz step (replays of the recorded events).
     3. kappa_hold: the smallest threshold whose retained steps (kappa >= threshold) have a P95 error at most
-       ``hold_target_p95_deg``: "uncertain" then means "not shown, on validation, to be within that bound".
+       ``hold_target_p95_deg``: "uncertain" then means "not shown, on validation, to be within that bound". When no
+       threshold reaches the target (the box prior's own error tail can sit just above it), the threshold whose
+       retained steps have the smallest P95 among those keeping at least ``HOLD_MIN_KEPT`` of the steps; the report
+       says which rule applied (``hold_rule``) and the P95 reached (``hold_p95_deg``).
     """
     from .body import JOINTS
     from .conventions import vm_halfwidth_rad, vm_logpdf, wrap_rad
@@ -221,17 +251,9 @@ def fit_calibration(results: list, weight: float, sigma_assumed_deg: dict, q_gri
     q_best = float(q_grid[int(np.argmax(ll))])
     log(f"  q: {q_best:.3g} rad²/s (mean log-lik {max(ll):.4f}; grid {q_grid[0]:.0e} to {q_grid[-1]:.0e})")
     e, k, j = _replay_all(results, q_best, scales, sig_rad, weight)
-    thr_grid = np.r_[0.0, 10.0 ** np.arange(-1.0, 6.01, 0.05)]
-    target = np.deg2rad(hold_target_p95_deg)
-    kappa_hold, kept = float(thr_grid[-1]), 0.0
-    for thr in thr_grid:
-        sel = k >= thr
-        if sel.mean() < 0.01:
-            break
-        if np.percentile(e[sel], 95) <= target:
-            kappa_hold, kept = float(thr), float(sel.mean())
-            break
-    log(f"  kappa_hold {kappa_hold:.4g}: {100 * kept:.1f} % of validation steps certain")
+    kappa_hold, kept, hold_p95, rule = fit_hold(e, k, np.deg2rad(hold_target_p95_deg))
+    log(f"  kappa_hold {kappa_hold:.4g} ({rule}; retained P95 {np.rad2deg(hold_p95):.2f}°): "
+        f"{100 * kept:.1f} % of validation steps certain")
     coverage = {}
     for t in ("hinge", "2dof", "3dof", "all"):
         sel = np.ones(e.size, bool) if t == "all" else (jt[j] == t)
@@ -239,5 +261,6 @@ def fit_calibration(results: list, weight: float, sigma_assumed_deg: dict, q_gri
     return {"kappa_scale": scales, "model_sigma_deg": sigmas_deg, "fitted_how": how, "window_mean_loglik": win_ll,
             "n_windows": n_win,
             "q_grid": q_grid.tolist(), "q_loglik": ll, "drift_q_rad2_per_s": q_best, "kappa_hold": kappa_hold,
+            "hold_rule": rule, "hold_p95_deg": float(np.rad2deg(hold_p95)),
             "certain_fraction": kept, "coverage": coverage, "n_sessions": len(results),
             "n_steps": int(e.size)}  # fmt: skip
