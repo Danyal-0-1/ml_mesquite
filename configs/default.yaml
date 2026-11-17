@@ -235,43 +235,43 @@ geometry:
     label: assumption
     source: "Step 2 brief §5.7: the estimator's belief about each pod's box-slot heading error; kappa0 = 1/sigma_pair^2 with sigma_pair = sqrt(2)·box_sigma. Not read from error_model.box_slot_deg (the simulator's truth)"
   drift_q_rad2_per_s:
-    value: 1.0e-5
-    label: assumption
-    source: "Step 2 brief §5.7: heading diffusion of a joint's relative heading, rad^2/s: 1.4 deg after 1 min, 4.4 deg after 10 min, 7.7 deg after 30 min (the order of Step 1's O1 errors, docs/RESULTS_STEP1.md Table 1); to be fitted on validation"
+    value: 5.623e-05
+    label: fitted
+    source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: the log-grid value with the largest von Mises log-likelihood of the filter's outputs at every motion-phase 32 Hz step"
   hold_target_p95_deg:
     value: 10.0
     label: assumption
     source: "Step 2 brief §5.7 hold rule: kappa_hold is fitted on validation as the smallest threshold whose retained steps (kappa >= it) have a 95th-percentile error of at most 10 deg"
   kappa_hold:
-    value: 33.0
-    label: assumption
-    source: "Step 2 brief §5.7 hold rule: 'uncertain' while kappa < kappa_hold; 33 = 1/(10 deg)^2 in rad; to be fitted on validation"
+    value: 89.1251
+    label: fitted
+    source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: the smallest threshold whose retained steps have P95 error <= 10 deg"
   kappa_scale:
     hinge:
-      value: 1.0
-      label: assumption
-      source: "Step 2 brief §5.4: one scale factor per joint type multiplies every window's kappa (residuals are correlated in time); 1 until fitted on validation"
+      value: 60.148753
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     2dof:
-      value: 1.0
-      label: assumption
-      source: "Step 2 brief §5.4, §5.5: kappa scale for 2-DoF windows; 1 until fitted on validation"
+      value: 0.752188
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     3dof:
-      value: 1.0
-      label: assumption
-      source: "Step 2 brief §5.4, §5.6: kappa scale for range-of-motion windows; 1 until fitted on validation"
+      value: 4.576599
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
   model_sigma_deg:
     hinge:
-      value: 2.0
-      label: assumption
-      source: "how far a real knee departs from a hinge within one window: each window's variance is sigma_hat^2/I + this^2 (statistical plus model error). Step 2 brief §5.4 asks to measure the knee's rotation about its other two axes on AMASS train: that measurement should replace this belief"
+      value: 66.0414
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: maximum likelihood, jointly with kappa_scale.hinge"
     2dof:
       value: 3.0
       label: assumption
       source: "how far a real elbow, wrist or ankle departs from a 2-DoF joint within one window (window variance += this^2); Step 2 brief §5.5 asks to measure the third-axis rotation on AMASS train"
     3dof:
-      value: 5.0
-      label: assumption
-      source: "a range-of-motion window cannot pin delta more tightly than the box itself is certain (window variance += this^2)"
+      value: 20.8514
+      label: fitted
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit 944b822e3031, 2026-11-17: maximum likelihood, jointly with kappa_scale.3dof"
   hinge_sigma_floor_deg:
     value: 0.5
     label: assumption
