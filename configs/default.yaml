@@ -237,67 +237,67 @@ geometry:
   drift_q_rad2_per_s:
     value: 5.623e-05
     label: fitted
-    source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit fab6e3de7b49, 2026-11-17: the log-grid value with the largest von Mises log-likelihood of the filter's outputs at every motion-phase 32 Hz step"
+    source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit f85ec191ab1a, 2026-11-17: the log-grid value with the largest von Mises log-likelihood of the filter's outputs at every motion-phase 32 Hz step"
   hold_target_p95_deg:
     value: 10.0
     label: assumption
     source: "Step 2 brief §5.7 hold rule: kappa_hold is fitted on validation as the smallest threshold whose retained steps (kappa >= it) have a 95th-percentile error of at most 10 deg; if none does, the threshold with the smallest retained P95 that keeps at least 10 % of steps"
   kappa_hold:
-    value: 125.8925
+    value: 158.4893
     label: fitted
-    source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit fab6e3de7b49, 2026-11-17: the smallest threshold whose retained steps have P95 error <= 10 deg"
+    source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit f85ec191ab1a, 2026-11-17: no threshold reached P95 <= 10 deg, so the one with the smallest retained P95 (10.16 deg) keeping at least 10 % of steps; 32.5 % of validation steps certain"
   kappa_scale:
     hinge:
-      value: 0.01177
+      value: 0.011776
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit fab6e3de7b49, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit f85ec191ab1a, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     2dof:
-      value: 0.557437
+      value: 0.556852
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit fab6e3de7b49, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit f85ec191ab1a, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     3dof:
-      value: 3.730019
+      value: 3.728253
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit fab6e3de7b49, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit f85ec191ab1a, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
   model_sigma_deg:
     hinge:
-      value: 0.9384
+      value: 0.9385
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit fab6e3de7b49, 2026-11-17: maximum likelihood, jointly with kappa_scale.hinge"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit f85ec191ab1a, 2026-11-17: maximum likelihood, jointly with kappa_scale.hinge"
     2dof:
       value: 3.0
       label: assumption
       source: "how far a real elbow, wrist or ankle departs from a 2-DoF joint within one window (window variance += this^2); Step 2 brief §5.5 asks to measure the third-axis rotation on AMASS train"
     3dof:
-      value: 20.6741
+      value: 20.6758
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit fab6e3de7b49, 2026-11-17: maximum likelihood, jointly with kappa_scale.3dof"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-ID; commit f85ec191ab1a, 2026-11-17: maximum likelihood, jointly with kappa_scale.3dof"
   kappa_scale_k:
     hinge:
-      value: 0.013995
+      value: 0.013994
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit f85ec191ab1a, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     2dof:
       value: 0.003916
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit f85ec191ab1a, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
     3dof:
-      value: 3.496186
+      value: 3.496256
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit f85ec191ab1a, 2026-11-17: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))"
   model_sigma_deg_k:
     hinge:
-      value: 0.7314
+      value: 0.7313
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.hinge"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit f85ec191ab1a, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.hinge"
     2dof:
-      value: 2.2574
+      value: 2.2575
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.2dof"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit f85ec191ab1a, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.2dof"
     3dof:
-      value: 11.2869
+      value: 11.2873
       label: fitted
-      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit 03d4a18118ea, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.3dof"
+      source: "fitted by `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` on AMASS (split manifest SHA-256 d36448adb767), validation split only: 330 sessions of 78 sequences, 9 subjects, GEO-K; commit f85ec191ab1a, 2026-11-17: maximum likelihood, jointly with kappa_scale_k.3dof"
   hinge_sigma_floor_deg:
     value: 0.5
     label: assumption
