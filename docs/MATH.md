@@ -1,6 +1,6 @@
 # The mathematics
 
-*Status: S2-M3. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections §9–§15 (clock, von Mises, events, hinge, 2-DoF, range of motion, facing).*
+*Status: S2-M5. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections §9–§17 (clock, von Mises, events, hinge, 2-DoF, range of motion, facing, calibration, DIODEM).*
 
 ## 1. Picture first
 
@@ -301,6 +301,21 @@ S = −sin 7° = −0.121869; δ̂ = −7.000°.
 
 The T-pose rule realises the brief's *Should* ("resolve the sign with the knee's one-way flexion"): it is what
 makes GEO-ID work while walking, where the knee axis stays near horizontal and the vertical rule cannot vote.
+
+**T-pose-tied identification (GEO-ID, S2-M4).** On AMASS the free four-angle fit failed: on 60 validation sessions
+its knee axes lay a median 19.5° (P90 60°) from the truth and 5 % of knee windows were off by more than 90°. When
+thigh and shin turn together (turning, swaying), *every* pair of axes with matching angles satisfies the condition,
+so the fit wanders. GEO-ID therefore uses the T-pose, as the suit's own calibration does: there the knee is straight
+and its axis horizontal (u_p ⊥ g_p, world up in the thigh pod frame) and one line in both segments, so with box
+registration's δ_T, u_c = q_c(T)⁻¹·Y(−δ_T)·q_p(T)·u_p. Only the azimuth of u_p is unknown: a 1° grid over [0°, 180°)
+and a golden-section refinement ([hinge.py](../mesqsim/estimators/hinge.py) `identify_hinge_axes_tpose`). A fit is
+accepted only if it stands out: its cost at most `geometry.axis_contrast_max` (0.25) × the median cost over the other
+azimuths (for the free fit, over 16 fixed probe axes); a rigid motion fails this. A local four-angle refinement then
+corrects T-pose posture error and is kept only within `geometry.axis_tpose_tolerance_deg` (15°) of the tied answer.
+The tie fixes the relative sign. Same 60 sessions: knee windows median 6.6°, P95 17.2°, none beyond 90°; axes a median
+5.8° (max 19.1°) from the truth; GEO-K, with the true axis, has median 5.2°, P95 14.1° (the SMPL knee is not an exact
+hinge). Only 804 of 2,400 knee windows had an identifiable axis: in non-walking sequences the estimator holds the
+box estimate instead of guessing. Without a T-pose (DIODEM) the free fit is used, with the same contrast test.
 On a synthetic walk every window voted for the right sign; identified axes were within 0.02°–0.98° of the truth
 with fusion noise on (scratch run, 4 sessions) and within 0.001° on noise-free motion (check 24.1).
 
@@ -369,4 +384,59 @@ m̂_i = F_T⁻¹·Y(ĉ_i(T))·q_i(T) once φ is known. The brief's way to φ is 
 On synthetic walks (scratch run, fusion noise and the 5° T-pose posture error on) m̂ was within a median 5.4–5.7°
 of the true mountings, about the posture error. Before the knees are identified, GEO-ID's 2-DoF and 3-DoF joints
 hold their box estimate and their κ decays (the brief's rule when facing is not ready).
+
+## 16. Step 2: calibration of the confidence, the drift and the hold rule (owned by [mesqsim/geo_fit.py](../mesqsim/geo_fit.py))
+
+Every window's κ enters the filter as
+
+```text
+κ_w = s_type · κ_stat / (1 + κ_stat·σ_m,type²)          (statistical variance 1/κ_stat plus model error σ_m², scaled)
+```
+
+with weight step/window = 1/8. All of it, and q and the hold threshold, are **fitted on the validation split**
+(`python -m mesqsim fit-geometry calibration --source amass --write`), never on test. The fit simulates exactly the
+validation sessions a `dataset` run would make (same seeds), runs GEO-ID, and **replays** the recorded filter events
+(`geo.replay`) for each candidate value: the windows do not depend on these parameters, so a replay reproduces the
+estimator exactly (`test_replay_reproduces_the_estimator_exactly`).
+
+1. **(s, σ_m) per joint type:** maximum likelihood of the window errors under VM(0, κ_w). When the optimum lies on a
+   bound (κ_stat hardly varies, so only κ_w at that κ_stat is identified), the brief's single scale is fitted and σ_m
+   kept at its stated assumption.
+2. **q:** on a log grid 10⁻⁹…10^−2.75 rad²/s, the value with the largest mean von Mises log-likelihood of the filter's
+   outputs at every motion-phase 32 Hz step.
+3. **κ_hold:** the smallest threshold whose retained steps (κ ≥ threshold) have a P95 error ≤
+   `geometry.hold_target_p95_deg` (10°, an assumption). "Uncertain" then means: not shown, on validation, to be
+   within that bound. The estimate still holds while uncertain.
+
+**Values (AMASS validation, 330 sessions of 78 sequences, 9 subjects, seed 1, commit 944b822):**
+
+| | hinge | 2-DoF | 3-DoF |
+|---|---|---|---|
+| fitted | s and σ_m | s only | s and σ_m |
+| s | 60.15 | 0.752 | 4.577 |
+| σ_m | 66.04° | 3° (assumption) | 20.85° |
+| largest window κ, s/σ_m² (its 1σ spread) | 45.2 (8.5°) | — | 34.6 (9.7°) |
+| coverage of the 68 % / 95 % intervals on validation | 0.715 / 0.945 | 0.702 / 0.949 | 0.728 / 0.949 |
+
+q = 5.623·10⁻⁵ rad²/s (a joint's belief widens by about √(q·600 s) = 10.5° over 10 minutes without information);
+κ_hold = 89.13 (35.1 % of validation steps certain). The knee's cap (σ ≈ 8.5° per window) matches its windows' median
+error of 6.6° on AMASS (§12): the SMPL knee is not an exact hinge. Coverage over all joints: 0.715 / 0.948. H5's
+target (within ±5 points of 68 and 95) is a result to be measured on **test**, in RESULTS_STEP2.
+
+## 17. Step 2: DIODEM (owned by [mesqsim/diodem_geo.py](../mesqsim/diodem_geo.py))
+
+- **Truth.** The rigid IMUs' axes are the optical segment axes (verified in Step 1), so q_VQF = Y(−ψ)·q_opt up to
+  fusion error and **ψ = −heading(q_VQF·q_opt⁻¹)**; δ = wrap(ψ_c − ψ_p). Sign test (check 32.1): q_VQF = Y(−30°)·q_opt
+  gives ψ = 30.000°; ψ_p = 12°, ψ_c = 5° gives δ = −7.000°.
+- **Estimator.** GEO-ID unchanged, on the six-axis VQF orientations at 40 Hz (the brief's *Must*), presented as pods
+  9 and 10 (a hinge) of a Step 0-shaped series with one motion phase: no box, no T-pose, so κ starts at 0 and the axes
+  come from the free fit. Only hinges are covered (saddle joints need 2-DoF identification, a *Should*; the spherical
+  joint a range of motion for these chains, which has no training data).
+- **Reference.** A perfect registration at the start (δ held at its true first value): its error is the six-axis
+  drift, −80.7° after 6.1 min on arm exp01's seg2 → seg3.
+- **Result (check 32.1, arm exp01, seg2 → seg3):** with the AMASS-fitted beliefs GEO-ID's median error is 15.0°
+  (P95 29.5°) against 80.7° for the start registration; with the assumed beliefs before the fit it was 7.8° (P95
+  24.5°). The knee calibration from AMASS (one window ≈ 8.5°) is pessimistic for DIODEM's near-perfect mechanical
+  hinge, so the filter follows the fast six-axis drift (about 30°/min at first) more slowly: a transfer effect,
+  reported per experiment in [RESULTS_STEP2.md](RESULTS_STEP2.md). Mechanical chains: no claim about people.
 

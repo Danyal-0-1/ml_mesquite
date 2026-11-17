@@ -40,6 +40,7 @@ from ..conventions import (
     quat_mean,
     quat_mul,
     quat_rotate,
+    quat_to_matrix,
     wrap_rad,
     yaw_quat,
 )
@@ -47,12 +48,21 @@ from ..correction import chain_corrections_rad
 from .anatomy import CARDAN_SEQ, HINGE_AXES, TWODOF_AXES
 from .clock import PodSamples, body_rates, epoch_starts, interp_rates, map_epoch, pair_samples, pod_samples
 from .contract import Estimate, GeoTruth
-from .hinge import AxisFit, axis_in_world, hinge_closed_form, identify_hinge_axes, vote_tpose, vote_vertical
+from .hinge import (
+    AxisFit,
+    axis_in_world,
+    hinge_closed_form,
+    identify_hinge_axes,
+    identify_hinge_axes_tpose,
+    vote_tpose,
+    vote_vertical,
+)
 from .rom import UNBOUNDED_DEG, rom_solve
 from .twodof import twodof_solve
 from .vmfilter import JointFilter
 
-__all__ = ["GeoParams", "GeoDiagnostics", "GeoEstimator", "estimate_geo_k", "estimate_geo_id", "JOINT_TYPES_ALL"]
+__all__ = ["GeoParams", "GeoDiagnostics", "GeoEvents", "GeoEstimator", "calibrated_kappa", "replay", "estimate_geo_k",
+           "estimate_geo_id", "JOINT_TYPES_ALL"]
 
 JOINT_TYPES_ALL = ("hinge", "2dof", "3dof")
 _PARENT = np.array([j.parent for j in JOINTS])
@@ -60,6 +70,61 @@ _CHILD = np.array([j.child for j in JOINTS])
 _JTYPE = np.array([j.jtype for j in JOINTS])
 _UPRIGHT = exp_map([np.pi / 2, 0.0, 0.0])  # Rx(90°): the SMPL body frame upright (body y -> world +Z)
 _KNEES = tuple(k for k, j in enumerate(JOINTS) if j.jtype == "hinge")
+
+
+def calibrated_kappa(kappa_stat: np.ndarray, scale_by_type: dict, sigma_by_type_rad: dict) -> np.ndarray:
+    """A window's kappa as the filter uses it: scale_type · kappa_stat / (1 + kappa_stat · sigma_m,type²).
+
+    1/kappa_stat is the window's statistical variance, sigma_m its joint type's model error (variances add), and the
+    scale corrects for residuals correlated in time; both are fitted per joint type on validation (brief §5.4).
+    """
+    k = np.asarray(kappa_stat, dtype=np.float64)
+    s = np.array([float(scale_by_type[t]) for t in _JTYPE])
+    sm2 = np.array([float(sigma_by_type_rad[t]) ** 2 for t in _JTYPE])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = np.where(k > 0, s * k / (1.0 + k * sm2), 0.0)
+    return out
+
+
+@dataclass
+class GeoEvents:
+    """Everything the filter needs, independent of its own parameters: replaying it with other values of q, the
+    kappa scales or the model errors reproduces exactly what the estimator would have output (used for fitting)."""
+
+    t_init: float
+    box_delta_rad: np.ndarray  # B1's estimate at the end of the box phase
+    events: list  # (t, kind, payload): 0 init (mu0, kappa0); 1 reset (joints); 2 window (delta_w, kappa_stat)
+
+
+def replay(ev: GeoEvents, t_query_s: np.ndarray, q_rad2_per_s: float, scale_by_type: dict, sigma_by_type_rad: dict,
+           weight: float, use_filter: bool = True) -> tuple[np.ndarray, np.ndarray, np.ndarray]:  # fmt: skip
+    """Belief (mu, kappa) at the query times, and whether it is defined (after the box init)."""
+    filt = JointFilter(N_JOINTS, q_rad2_per_s)
+    last = {"t": [], "delta": [], "kappa": []}
+    for t, kind, payload in ev.events:
+        if kind == 0:
+            filt.init(t, *payload)
+        elif kind == 1:
+            filt.reset(t, payload)
+        else:
+            d_w, k_stat = payload
+            k_w = calibrated_kappa(k_stat, scale_by_type, sigma_by_type_rad)
+            filt.update(t, d_w, k_w * weight)
+            last["t"].append(t)
+            last["delta"].append(d_w)
+            last["kappa"].append(k_w)
+    mu, kap, defined = filt.query(t_query_s)
+    if not use_filter:  # each window stands alone; without information, box registration
+        mu = np.broadcast_to(ev.box_delta_rad, (t_query_s.size, N_JOINTS)).copy()
+        kap = np.zeros((t_query_s.size, N_JOINTS))
+        if last["t"]:
+            idx = np.searchsorted(np.asarray(last["t"]), t_query_s, side="right") - 1
+            d = np.stack(last["delta"])[np.clip(idx, 0, None)]
+            k = np.stack(last["kappa"])[np.clip(idx, 0, None)]
+            use = (idx >= 0)[:, None] & (k > 0)
+            mu[use] = d[use]
+            kap[use] = k[use]
+    return mu, kap, defined
 
 
 class GeoParams:
@@ -80,6 +145,15 @@ class GeoParams:
     def kappa_scale(self, jtype: str) -> float:
         return float(self[f"kappa_scale.{jtype}"])
 
+    def scales(self) -> dict:
+        return {t: self.kappa_scale(t) for t in JOINT_TYPES_ALL}
+
+    def model_sigmas_rad(self) -> dict:
+        return {t: float(np.deg2rad(self[f"model_sigma_deg.{t}"])) for t in JOINT_TYPES_ALL}
+
+    def weight(self, use_filter: bool) -> float:
+        return float(self["step_s"]) / float(self["window_s"]) if use_filter else 1.0
+
 
 @dataclass
 class GeoDiagnostics:
@@ -88,6 +162,7 @@ class GeoDiagnostics:
     windows: list = field(default_factory=list)  # per window and joint: T, joint, n_pairs, delta, kappa_raw, status
     pairs: list = field(default_factory=list)  # per window and joint: (T, joint, parent rows, child rows j, u)
     state: dict = field(default_factory=dict)  # estimator-specific state (identified axes, facing, ...)
+    events: GeoEvents | None = None  # the filter's inputs, for replays with other parameters (fitting)
     seconds: float = 0.0  # wall time of the whole estimate
 
 
@@ -142,26 +217,25 @@ class GeoEstimator:
 
         t_init = self.phases["box"][1] if "box" in self.phases else self._t_geom_start()
         filt = JointFilter(N_JOINTS, float(self.p["drift_q_rad2_per_s"]))
-        self._filt = filt
-        events = self._events(t_init, tq)
-        last_w = {"t": [], "delta": [], "kappa": []}  # window estimates, for the no-filter ablation
-        for t, kind, arg in events:
+        self._filt = filt  # the live belief: read once, at the end of the T-pose (box registration's delta)
+        scales, sigmas, weight = self.p.scales(), self.p.model_sigmas_rad(), self.p.weight(self.use_filter)
+        log: list = []
+        self.box_delta_rad = np.zeros(N_JOINTS)
+        for t, kind, arg in self._events(t_init, tq):
             if kind == 0:
                 mu0, k0 = self._box_init(t)
                 filt.init(t, mu0, k0)
+                log.append((t, 0, (mu0, k0)))
             elif kind == 1:
                 filt.reset(t, arg)
+                log.append((t, 1, arg))
             else:
-                d_w, k_w = self._window(t)
-                weight = self.p["step_s"] / self.p["window_s"] if self.use_filter else 1.0
-                filt.update(t, d_w, k_w * weight)
-                last_w["t"].append(t)
-                last_w["delta"].append(d_w)
-                last_w["kappa"].append(k_w)
-
-        mu, kap, defined = filt.query(tq)
-        if not self.use_filter:
-            mu, kap = self._windows_only(tq, filt, last_w)
+                d_w, k_stat = self._window(t)
+                filt.update(t, d_w, calibrated_kappa(k_stat, scales, sigmas) * weight)
+                log.append((t, 2, (d_w, k_stat)))
+        events = GeoEvents(t_init, self.box_delta_rad.copy(), log)
+        mu, kap, defined = replay(events, tq, float(self.p["drift_q_rad2_per_s"]), scales, sigmas, weight,
+                                  self.use_filter)  # fmt: skip
         # before initialisation: the running box registration, with no confidence
         pre = ~defined | (tq < t_init)
         if np.any(pre):
@@ -170,6 +244,7 @@ class GeoEstimator:
         uncertain = kap < float(self.p["kappa_hold"])
         diag.seconds = time.perf_counter() - t_wall
         diag.state.update(self._state_summary())
+        diag.events = events
         return Estimate(wrap_rad(mu), kap, uncertain), diag
 
     # ================================================================== events
@@ -265,24 +340,10 @@ class GeoEstimator:
         k0[~(ok_pod[_PARENT] & ok_pod[_CHILD])] = 0.0
         return self.box_delta_rad, k0
 
-    def _windows_only(self, tq: np.ndarray, filt: JointFilter, last_w: dict) -> tuple[np.ndarray, np.ndarray]:
-        """No-filter ablation: the latest window's estimate where it carries information, else box registration."""
-        mu = np.broadcast_to(getattr(self, "box_delta_rad", np.zeros(N_JOINTS)), (tq.size, N_JOINTS)).copy()
-        kap = np.zeros((tq.size, N_JOINTS))
-        if last_w["t"]:
-            times = np.asarray(last_w["t"])
-            idx = np.searchsorted(times, tq, side="right") - 1
-            have = idx >= 0
-            d = np.stack(last_w["delta"])[np.clip(idx, 0, None)]
-            k = np.stack(last_w["kappa"])[np.clip(idx, 0, None)]
-            use = have[:, None] & (k > 0)
-            mu[use] = d[use]
-            kap[use] = k[use]
-        return mu, kap
-
     # ================================================================== windows
     def _window(self, t: float) -> tuple[np.ndarray, np.ndarray]:
-        """Solve every joint over the window ending at t; returns (delta_w, kappa_w) after calibration."""
+        """Solve every joint over the window ending at t; returns (delta_w, kappa_stat): each solver's statistical
+        concentration, before the model error and the scale (:func:`calibrated_kappa`)."""
         w = self._window_context(t)
         if self.state.get("tpose") is None and "tpose" in self.phases and t >= self.phases["tpose"][1]:
             self.state["tpose"] = self._tpose_snapshot()
@@ -296,12 +357,12 @@ class GeoEstimator:
             sp, sc = self.samples[p], self.samples[c]
             pairs = pair_samples(w.tau[p], sp.q[w.idx[p]], w.tau[c], sc.q[w.idx[c]], float(self.p["max_pair_gap_s"]))
             self._detail = {}
-            delta, kappa_raw, status = self._solve(j, pairs, w)
+            delta, kappa_stat, status = self._solve(j, pairs, w)
             d_w[j] = delta
-            k_w[j] = kappa_raw * self.p.kappa_scale(self._solver_type(j))
+            k_w[j] = kappa_stat
             if self._diag is not None:
                 self._diag.windows.append({"t_s": t, "joint": j, "n_pairs": len(pairs), "delta_rad": delta,
-                                           "kappa_raw": kappa_raw, "status": status, **self._detail})  # fmt: skip
+                                           "kappa_stat": kappa_stat, "status": status, **self._detail})  # fmt: skip
                 self._diag.pairs.append((t, j, sp.row[w.idx[p]][pairs.ip], sc.row[w.idx[c]][pairs.jc],
                                          sc.row[w.idx[c]][np.minimum(pairs.jc + 1, len(w.idx[c]) - 1)], pairs.u))
         return wrap_rad(d_w), k_w
@@ -379,7 +440,7 @@ class GeoEstimator:
                            float(self.p["twodof_ambiguity_llr"]))  # fmt: skip
         self._detail = {"kappa_stat": fit.kappa, "cost": fit.cost, "second_cost": fit.second_cost}
         status = "ambiguous" if fit.ambiguous else ("ok" if fit.kappa > 0 else "flat")
-        return fit.delta_rad, self._with_model_floor(fit.kappa, "twodof_model_sigma_deg"), status
+        return fit.delta_rad, fit.kappa, status
 
     def _rom_limits_rad(self, j: int) -> tuple[np.ndarray, np.ndarray] | None:
         box = self.p.get(f"rom_limits_deg.{JOINTS[j].name}")
@@ -398,20 +459,11 @@ class GeoEstimator:
         fit = rom_solve(a_q, b_q, CARDAN_SEQ[JOINTS[j].name], lim[0], lim[1],
                         float(np.deg2rad(self.p["rom_sigma_deg"])))  # fmt: skip
         self._detail = {"kappa_stat": fit.kappa, "cost": fit.cost_min, "frac_violating": fit.frac_violating}
-        return fit.delta_rad, self._with_model_floor(fit.kappa, "rom_model_sigma_deg"), (
-            "ok" if fit.kappa > 0 else "flat")
+        return fit.delta_rad, fit.kappa, "ok" if fit.kappa > 0 else "flat"
 
     # ------------------------------------------------------------------ hinge
     def _hinge_floor_rad(self) -> float:
         return float(np.deg2rad(self.p["hinge_sigma_floor_deg"]))
-
-    def _with_model_floor(self, kappa_stat: float, key: str) -> float:
-        """Total variance of a window estimate = statistical (1/kappa) + model error (sigma_m²): one window cannot pin
-        delta more tightly than the joint model itself holds (a real knee is not an exact hinge)."""
-        if kappa_stat <= 0:
-            return 0.0
-        sm = float(np.deg2rad(self.p[key]))
-        return float(kappa_stat / (1.0 + kappa_stat * sm * sm))
 
     def _true_axes_in_pods(self, j: int, seg_axes: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
         """GEO-K: u = m^-1·u_seg in each pod's frame, with the true mountings m (pod -> segment)."""
@@ -424,8 +476,7 @@ class GeoEstimator:
         fit = hinge_closed_form(axis_in_world(pairs.q_p, u_p)[:, :2], axis_in_world(pairs.q_c, u_c)[:, :2],
                                 self._hinge_floor_rad())  # fmt: skip
         self._detail = {"info": fit.info, "kappa_stat": fit.kappa}
-        return fit.delta_rad, self._with_model_floor(fit.kappa, "hinge_model_sigma_deg"), (
-            "ok" if fit.kappa > 0 else "blind")
+        return fit.delta_rad, fit.kappa, "ok" if fit.kappa > 0 else "blind"
 
     def _pod_rates(self, pod: int, w: _Window) -> tuple[np.ndarray, np.ndarray]:
         """Body rates of one pod over the identification span (current epoch, from the T-pose on), cached per window."""
@@ -439,7 +490,14 @@ class GeoEstimator:
         return self._rate_cache[key]
 
     def _identify(self, j: int, w: _Window) -> AxisFit | None:
-        """GEO-ID: (re-)identify the hinge axes from the rates since the T-pose; keep the last good fit otherwise."""
+        """GEO-ID: (re-)identify the hinge axes from the rates since the motion began; keep the last good fit otherwise.
+
+        With a valid T-pose snapshot and box prior, the knee axis is tied to the T-pose (horizontal there, one line in
+        both segments: :func:`identify_hinge_axes_tpose`, one unknown), then refined locally with all four angles and
+        the refinement kept only if it stays within ``axis_tpose_tolerance_deg``. Without a T-pose (DIODEM), the free
+        four-angle fit. Either way the fit must stand out from the alternatives (contrast <= ``axis_contrast_max``):
+        when thigh and shin turn together, every axis fits and none is accepted.
+        """
         jt = JOINTS[j]
         prev = self.state["axes"].get(j)
         tp, wp = self._pod_rates(jt.parent, w)
@@ -450,17 +508,52 @@ class GeoEstimator:
             float(self.p["axis_min_rate_deg_s"]))
         if int(strong.sum()) < int(self.p["axis_min_pairs"]):
             return prev
-        start = (prev.u_p, prev.u_c) if prev is not None else None
-        fit = identify_hinge_axes(wp[strong], wc_at_p[strong], start=start,
-                                  n_starts=2 if prev is not None else int(self.p["axis_starts"]))  # fmt: skip
+        wp, wc_at_p = wp[strong], wc_at_p[strong]
+        contrast_max = float(self.p["axis_contrast_max"])
+        tie = self._tpose_tie(j)
+        if tie is not None:
+            tied = identify_hinge_axes_tpose(wp, wc_at_p, *tie)
+            if tied.contrast > contrast_max:
+                return prev
+            ref = identify_hinge_axes(wp, wc_at_p, start=(tied.u_p, tied.u_c), n_starts=0)
+            tol = np.deg2rad(float(self.p["axis_tpose_tolerance_deg"]))
+            if max(_axis_angle(ref.u_p, tied.u_p), _axis_angle(ref.u_c, tied.u_c)) <= tol:
+                fit = AxisFit(ref.u_p, ref.u_c, ref.rms_rad_s, ref.rel_residual, ref.n, tied.contrast, True)
+            else:
+                scale = float(np.sqrt(np.mean(0.5 * (np.sum(wp**2, axis=1) + np.sum(wc_at_p**2, axis=1)))))
+                fit = AxisFit(tied.u_p, tied.u_c, tied.rms_rad_s, tied.rms_rad_s / scale if scale > 0 else np.inf,
+                              tied.n, tied.contrast, True)  # fmt: skip
+        else:
+            start = (prev.u_p, prev.u_c) if prev is not None else None
+            fit = identify_hinge_axes(wp, wc_at_p, start=start,
+                                      n_starts=2 if prev is not None else int(self.p["axis_starts"]))  # fmt: skip
+            if fit.contrast > contrast_max:
+                return prev
         if fit.rel_residual > float(self.p["axis_max_residual"]):
             return prev
         if prev is not None:
             moved = max(_axis_angle(fit.u_p, prev.u_p), _axis_angle(fit.u_c, prev.u_c))
             if moved > np.deg2rad(30.0):  # a jump: the sign bookkeeping no longer refers to the same axes
                 self.state["sign_tally"][j] = 0
+            if not fit.tied:
+                from .hinge import align_sign
+
+                fit = AxisFit(align_sign(fit.u_p, prev.u_p), align_sign(fit.u_c, prev.u_c), fit.rms_rad_s,
+                              fit.rel_residual, fit.n, fit.contrast, False)  # fmt: skip
         self.state["axes"][j] = fit
         return fit
+
+    def _tpose_tie(self, j: int) -> tuple[np.ndarray, np.ndarray] | None:
+        """(g_p, m_rel): world up in the parent pod frame at the T-pose, and the rotation taking the parent pod frame
+        to the child's at the T-pose with box registration's delta_T, or None without a valid snapshot and prior."""
+        tp = self.state.get("tpose")
+        jt = JOINTS[j]
+        if tp is None or not (tp["valid"][jt.parent] and tp["valid"][jt.child]) or tp["kappa"][j] <= 0:
+            return None
+        q_p, q_c = tp["q"][jt.parent], tp["q"][jt.child]
+        g_p = quat_rotate(quat_conj(q_p), [0.0, 0.0, 1.0])
+        rel = quat_mul(quat_mul(quat_conj(q_c), yaw_quat(-tp["mu"][j])), q_p)
+        return g_p, quat_to_matrix(rel)
 
     def _tpose_ref(self, j: int) -> np.ndarray | None:
         """q_p(T)^-1·Y(mu_T)·q_c(T): the pod-to-pod rotation in the T-pose, if both pods have a snapshot and the
@@ -482,6 +575,8 @@ class GeoEstimator:
         if ref is not None and fit.kappa > 0:
             votes += vote_tpose(pairs.q_p, pairs.q_c, fit.delta_rad, ref, np.deg2rad(self.p["tpose_sign_margin_deg"]))
         tally = self.state["sign_tally"].get(j, 0) + votes
+        if axes.tied:  # u_c was derived from u_p through the T-pose: the relative sign is right by construction
+            tally = max(tally, 1)
         self.state["sign_tally"][j] = tally
         self._detail = {"info": fit.info, "kappa_stat": fit.kappa, "u_p": axes.u_p, "u_c": axes.u_c,
                         "sign_tally": tally}  # fmt: skip
@@ -490,7 +585,7 @@ class GeoEstimator:
         delta = fit.delta_rad if tally > 0 else float(wrap_rad(fit.delta_rad + np.pi))
         if ref is not None and fit.kappa > 0:
             self._vote_knee_direction(j, pairs, delta, axes.u_p, ref)
-        return delta, self._with_model_floor(fit.kappa, "hinge_model_sigma_deg"), "ok" if fit.kappa > 0 else "blind"
+        return delta, fit.kappa, "ok" if fit.kappa > 0 else "blind"
 
     # ------------------------------------------------------------------ facing and T-pose frames (GEO-ID)
     def _vote_knee_direction(self, j: int, pairs, delta: float, u_p: np.ndarray, j_tpose: np.ndarray) -> None:

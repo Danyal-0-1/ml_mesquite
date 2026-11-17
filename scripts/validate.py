@@ -30,6 +30,9 @@ FIGURES = [
      "the datasheet scaling N_g·√t (checks 6.1); error bars are ±1 standard error of the spread."),
     ("diodem_relative_heading.png", "DIODEM arm exp01, hinge seg2 → seg3: six-axis VQF relative heading against "
      "optical truth (check 11.3). No claims are drawn from it in Step 1."),
+    ("diodem_geo_hinge.png", "DIODEM arm exp01, hinge seg2 → seg3: GEO-ID (unchanged, from the six-axis IMUs only, "
+     "no box, no T-pose) against the optical relative heading, with its 95 % interval, and a perfect registration "
+     "at the start for comparison (check 32.1). Mechanical chain: out of distribution."),
 ]
 
 

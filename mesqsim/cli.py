@@ -7,6 +7,7 @@
     split      [--write] [--force]              split AMASS subjects 70/15/15 -> manifests/split_manifest.csv
     dataset    --seed 1 [--source synthetic|amass] [--set ...]   simulate a dataset into a run folder and score it
     fit-geometry rom [--source amass|synthetic] [--write]   fit the range-of-motion boxes on the training split
+    fit-geometry calibration [--source ...] [--write]       fit kappa scales, model errors, q, kappa_hold on val
     list-runs                                   runs under the output directory
     clean      --run DIR | --all --yes          delete run folders (only run_* folders in the output directory)
 """
@@ -140,9 +141,8 @@ def cmd_fit_geometry(args) -> int:
 
     cfg = load_config(args.config)
     manifest = manifest_dir() / "split_manifest.csv"
-    if args.what != "rom":
-        print(f"unknown fit {args.what!r}")
-        return 1
+    if args.what == "calibration":
+        return _fit_calibration(args, cfg, manifest)
     if args.source == "amass":
         sources = amass_sources(manifest)
         sha = (manifest_dir() / "split_manifest.sha256").read_text(encoding="utf-8").split()[0]
@@ -165,6 +165,61 @@ def cmd_fit_geometry(args) -> int:
             set_leaf_in_file(args.config, f"geometry.rom_limits_deg.{joint}", box, "fitted",
                              note.replace("{seq}", CARDAN_SEQ[joint]))  # fmt: skip
         print(f"wrote {len(res.limits_deg)} boxes into {args.config} (label fitted)")
+    return 0
+
+
+def _fit_calibration(args, cfg, manifest) -> int:
+    """GEO-ID on the validation sessions of the dataset; kappa scales, model errors, q and kappa_hold fitted."""
+    import datetime as dt
+    import json
+
+    from .config import set_leaf_in_file
+    from .dataset import amass_sources, synthetic_sources
+    from .geo_fit import calibration_worker, fit_calibration
+    from .geo_sessions import dataset_jobs, run_jobs
+    from .paths import manifest_dir, output_dir
+    from .runs import git_commit
+
+    if args.source == "amass":
+        sources = amass_sources(manifest)
+        sha = (manifest_dir() / "split_manifest.sha256").read_text(encoding="utf-8").split()[0]
+        data = f"AMASS (split manifest SHA-256 {sha[:12]})"
+    else:
+        sources = synthetic_sources()
+        data = "SYNTHETIC stand-in motion (provisional)"
+    jobs = dataset_jobs(cfg, sources, args.seed, splits=("val",), max_sequences=args.max_sequences)
+    print(f"{len(jobs)} validation sessions from {len({j['path'] for j in jobs})} sequences; seed {args.seed}")
+    results = run_jobs(calibration_worker, jobs, args.config)
+    w = float(cfg["geometry.step_s"]) / float(cfg["geometry.window_s"])
+    sig0 = {t: float(cfg[f"geometry.model_sigma_deg.{t}"]) for t in ("hinge", "2dof", "3dof")}
+    fit = fit_calibration(results, w, sig0, hold_target_p95_deg=float(cfg["geometry.hold_target_p95_deg"]))
+    commit = git_commit()
+    out = output_dir() / f"fit_calibration_g{commit.split('+')[0][:7]}_{args.source}_s{args.seed}"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.json").write_text(json.dumps(fit, indent=1), encoding="utf-8")
+    print(json.dumps({k: fit[k] for k in ("kappa_scale", "model_sigma_deg", "fitted_how", "drift_q_rad2_per_s",
+                                          "kappa_hold",
+                                          "certain_fraction", "coverage", "n_sessions", "n_steps")}, indent=1))
+    print(f"report: {out / 'report.json'}")
+    if args.write:
+        command = f"python -m mesqsim fit-geometry calibration --source {args.source} --seed {args.seed} --write"
+        n_subj = len({(j["subset"], j["subject"]) for j in jobs})
+        note = (f"fitted by `{command}` on {data}, validation split only: {fit['n_sessions']} sessions of "
+                f"{len({j['path'] for j in jobs})} sequences, {n_subj} subjects, GEO-ID; commit {commit[:12]}, "
+                f"{dt.datetime.now(dt.UTC).strftime('%Y-%m-%d')}")
+        for t in ("hinge", "2dof", "3dof"):
+            set_leaf_in_file(args.config, f"geometry.kappa_scale.{t}", round(fit["kappa_scale"][t], 6), "fitted",
+                             f"{note}: maximum likelihood of the window errors under VM(0, s·k/(1 + k·sigma_m^2))")
+            if fit["fitted_how"][t] == "scale+sigma":
+                set_leaf_in_file(args.config, f"geometry.model_sigma_deg.{t}", round(fit["model_sigma_deg"][t], 4),
+                                 "fitted", f"{note}: maximum likelihood, jointly with kappa_scale.{t}")
+        set_leaf_in_file(args.config, "geometry.drift_q_rad2_per_s", float(f"{fit['drift_q_rad2_per_s']:.4g}"),
+                         "fitted", f"{note}: the log-grid value with the largest von Mises log-likelihood of the "
+                                   "filter's outputs at every motion-phase 32 Hz step")  # fmt: skip
+        set_leaf_in_file(args.config, "geometry.kappa_hold", round(fit["kappa_hold"], 4), "fitted",
+                         f"{note}: the smallest threshold whose retained steps have P95 error <= "
+                         f"{cfg['geometry.hold_target_p95_deg']:g} deg")  # fmt: skip
+        print(f"wrote the calibration into {args.config} (label fitted)")
     return 0
 
 
@@ -235,7 +290,9 @@ def main(argv=None) -> int:
     d.set_defaults(fn=cmd_dataset)
 
     fg = sub.add_parser("fit-geometry", help="fit the estimator's beliefs on train/validation (never test)")
-    fg.add_argument("what", choices=["rom"])
+    fg.add_argument("what", choices=["rom", "calibration"])
+    fg.add_argument("--seed", type=int, default=1, help="run seed of the dataset sessions (calibration)")
+    fg.add_argument("--max-sequences", type=int, default=None, help="cap on validation sequences (calibration)")
     fg.add_argument("--config", default=str(DEFAULT_CONFIG))
     fg.add_argument("--source", choices=["amass", "synthetic"], default="amass")
     fg.add_argument("--write", action="store_true", help="write the fitted values into the config (label fitted)")

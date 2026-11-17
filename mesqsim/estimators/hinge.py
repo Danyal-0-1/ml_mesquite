@@ -85,6 +85,8 @@ class AxisFit:
     rms_rad_s: float  # RMS of |omega_p × u_p| - |omega_c × u_c|
     rel_residual: float  # rms / RMS of the rate magnitudes: 0 for a perfect hinge without noise
     n: int  # rate pairs used
+    contrast: float = 0.0  # best cost / median cost over fixed probe axes (near 1: the motion does not identify)
+    tied: bool = False  # True: u_c tied to u_p by the T-pose (the relative sign is known)
 
 
 _STARTS = np.random.default_rng(20260508).normal(size=(16, 2, 3))  # fixed: identification is deterministic
@@ -124,7 +126,10 @@ def identify_hinge_axes(w_p: np.ndarray, w_c: np.ndarray, start: tuple[np.ndarra
         up, uc = align_sign(up), align_sign(uc)
     rms = float(np.sqrt(np.mean(resid(x) ** 2)))
     scale = float(np.sqrt(np.mean(0.5 * (np.sum(w_p**2, axis=1) + np.sum(w_c**2, axis=1)))))
-    return AxisFit(up, uc, rms, rms / scale if scale > 0 else np.inf, int(w_p.shape[0]))
+    probes = [np.sum(resid([*angles_from_unit(_STARTS[k, 0]), *angles_from_unit(_STARTS[k, 1])]) ** 2)
+              for k in range(16)]  # fmt: skip
+    contrast = float(np.sum(resid(x) ** 2) / max(float(np.median(probes)), 1e-300))
+    return AxisFit(up, uc, rms, rms / scale if scale > 0 else np.inf, int(w_p.shape[0]), contrast)
 
 
 def align_sign(u: np.ndarray, ref: np.ndarray | None = None) -> np.ndarray:
@@ -166,3 +171,62 @@ def vote_tpose(q_p: np.ndarray, q_c: np.ndarray, delta_rad: float, j_tpose: np.n
         ang.append(float(np.median(geodesic_angle_rad(quat_mul(j, quat_conj(j_tpose))))))
     diff = ang[1] - ang[0]
     return 1 if diff >= margin_rad else (-1 if diff <= -margin_rad else 0)
+
+
+# ------------------------------------------------------------------------------------------ T-pose-tied identification
+
+@dataclass(frozen=True)
+class TposeAxisFit:
+    u_p: np.ndarray  # hinge axis in the parent pod frame: horizontal at the T-pose
+    u_c: np.ndarray  # = m_rel·u_p: the same line in the child pod frame (relative sign fixed)
+    azimuth_rad: float  # of u_p in the parent's horizontal plane at the T-pose
+    contrast: float  # cost at the best azimuth / median cost over all azimuths (small = well identified)
+    rms_rad_s: float
+    n: int
+
+
+def tpose_axis_basis(g_p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Two unit vectors spanning the plane perpendicular to ``g_p`` (world up in the parent pod frame at the T-pose)."""
+    g = np.asarray(g_p, dtype=np.float64) / np.linalg.norm(g_p)
+    a = np.array([1.0, 0.0, 0.0]) if abs(g[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = a - np.dot(a, g) * g
+    e1 /= np.linalg.norm(e1)
+    return e1, np.cross(g, e1)
+
+
+def identify_hinge_axes_tpose(w_p: np.ndarray, w_c: np.ndarray, g_p: np.ndarray, m_rel: np.ndarray,
+                              n_grid: int = 180) -> TposeAxisFit:  # fmt: skip
+    """Identify the knee axis with the T-pose geometry built in (one unknown instead of four).
+
+    In the T-pose the knee is straight and its axis horizontal: u_p is perpendicular to g_p, world up in the thigh
+    pod's frame at the T-pose; and it is one line in both segments, so with box registration's delta_T,
+    u_c = q_c(T)^-1·Y(-delta_T)·q_p(T)·u_p = ``m_rel``·u_p (a rotation matrix). Only the azimuth of u_p in the
+    horizontal plane is unknown: the Seel cost sum (|w_p × u_p| - |w_c × u_c|)² is evaluated over a 1° grid of
+    azimuths in [0°, 180°) (u and -u cost the same) and refined. A rigid motion of thigh and shin together satisfies
+    the condition for every azimuth; ``contrast`` (best cost / median cost) then stays near 1 and the caller rejects it.
+    """
+    e1, e2 = tpose_axis_basis(g_p)
+    alpha = np.linspace(0.0, np.pi, n_grid, endpoint=False)
+    u_p = np.cos(alpha)[:, None] * e1 + np.sin(alpha)[:, None] * e2  # (G, 3)
+    u_c = u_p @ np.asarray(m_rel, dtype=np.float64).T
+
+    def cost(up, uc):
+        r = np.linalg.norm(np.cross(w_p[None], up[:, None]), axis=-1) - np.linalg.norm(np.cross(w_c[None], uc[:, None]),
+                                                                                      axis=-1)  # fmt: skip
+        return np.sum(r * r, axis=1)
+
+    c = cost(u_p, u_c)
+    k = int(np.argmin(c))
+    lo, hi = alpha[k] - np.pi / n_grid, alpha[k] + np.pi / n_grid
+    for _ in range(40):  # golden-section refinement inside the bracketing grid cell
+        a1, a2 = lo + 0.382 * (hi - lo), lo + 0.618 * (hi - lo)
+        pts = np.cos([a1, a2])[:, None] * e1 + np.sin([a1, a2])[:, None] * e2
+        c1, c2 = cost(pts, pts @ np.asarray(m_rel).T)
+        lo, hi = (lo, a2) if c1 < c2 else (a1, hi)
+    a_best = 0.5 * (lo + hi)
+    up = np.cos(a_best) * e1 + np.sin(a_best) * e2
+    uc = np.asarray(m_rel) @ up
+    best = float(cost(up[None], uc[None])[0])
+    contrast = best / max(float(np.median(c)), 1e-300)
+    return TposeAxisFit(up, uc / np.linalg.norm(uc), float(a_best), float(contrast),
+                        float(np.sqrt(best / max(w_p.shape[0], 1))), int(w_p.shape[0]))  # fmt: skip

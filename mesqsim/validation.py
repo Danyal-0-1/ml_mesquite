@@ -1378,3 +1378,194 @@ def _rom_check(quick: bool) -> CheckResult:
     ok = max(errs) < 1.0 and k_wide < 3.0 and hw > 60.0 and k_free == 0.0
     return CheckResult(f"(a) max error {max(errs):.3f}° over {len(errs)} windows; (b) kappa {k_wide:.2f} "
                        f"(95 % half-width {hw:.0f}°); (c) kappa {k_free:g}", ok)  # fmt: skip
+
+
+@register(
+    "27.1",
+    "Filter: exact prediction, large-kappa limit, product update, reboot reset; GEO-ID = B1 without information",
+    "(a) Beliefs left alone for 1 s to 600 s: the mean stays and A(kappa) = A(kappa0)·exp(-q·dt/2); (b) kappa0 = 5e4: "
+    "kappa against (1/kappa0 + q·dt)^-1; (c) one update against the closed-form product; (d) the stress preset, "
+    "seed 5 (reboots), 10-minute idle: at the first query after the host learns of each reboot, before the next "
+    "window, kappa of every joint of that pod; (e) noise-free standing (preset zero, arbitrary offsets): GEO-ID's "
+    "error against B1's at every motion step.",
+    "The filter is the estimator's memory; a reboot gives the pod a new north, so its joints must forget (brief "
+    "§5.7). With nothing to learn, GEO-ID must not do worse than box registration (S2-M4).",
+    "(a) relative error < 1e-9 and the mean unchanged; (b) within 1 %; (c) identical; (d) kappa = 0; (e) never worse",
+    "pytest tests/test_filter.py",
+)
+def _filter_check(quick: bool) -> CheckResult:
+    from . import evaluate as ev
+    from .conventions import vm_mean_resultant, vm_product
+    from .estimators.geo import GeoEstimator
+    from .estimators.vmfilter import JointFilter
+
+    f = JointFilter(3, 4e-6)
+    k0 = np.array([5.0, 80.0, 2000.0])
+    f.init(10.0, np.array([0.3, -2.0, 3.1]), k0)
+    t = np.array([11.0, 70.0, 610.0])
+    mu, kap, _ = f.query(t)
+    rel = float(np.max(np.abs(vm_mean_resultant(kap) / (vm_mean_resultant(k0) * np.exp(-4e-6 * (t - 10) / 2)[:, None])
+                              - 1)))  # fmt: skip
+    mean_ok = float(np.max(np.abs(mu - [0.3, -2.0, 3.1]))) < 1e-15
+    g = JointFilter(1, 1e-5)
+    g.init(0.0, np.zeros(1), np.array([5e4]))
+    lim = max(abs(float(g.query(np.array([dt]))[1][0, 0]) * (1 / 5e4 + 1e-5 * dt) - 1) for dt in (1.0, 60.0, 600.0))
+    h = JointFilter(2, 0.0)
+    h.init(0.0, np.array([0.1, 3.0]), np.array([10.0, 0.0]))
+    h.update(1.0, np.array([0.5, -2.0]), np.array([30.0, 7.0]))
+    pm, pk = vm_product(np.array([0.1, 3.0]), np.array([10.0, 0.0]), np.array([0.5, -2.0]), np.array([30.0, 7.0]))
+    prod_ok = np.array_equal(h.mu, pm) and np.array_equal(h.kappa, pk)
+    d, _, series, host, cfg = _geo_session("stress", seed=5, motion="synthetic:walk:30", **{"session.idle_s": 600.0})
+    est, diag = GeoEstimator(cfg).run(series, d.session, host, diagnostics=True)
+    resets = [(tt, jj) for tt, kind, jj in diag.events.events if kind == 1]
+    wins = [tt for tt, kind, _ in diag.events.events if kind == 2]
+    checked, reset_ok = 0, True
+    for tt, jj in resets:
+        k = int(np.searchsorted(host, tt, side="left"))
+        nxt = [w for w in wins if w >= tt]
+        if k < host.size and (not nxt or host[k] < nxt[0]):
+            checked += 1
+            reset_ok &= bool(np.all(est.kappa[k, jj] == 0.0))
+    d2, _, s2, h2, _ = _geo_session("zero", seed=4, motion="synthetic:stand:20",
+                                    **{"error_model.offset_mode": "arbitrary"})  # fmt: skip
+    g2 = ev.Grid(d2.labels_joints)
+    geo = GeoEstimator(cfg).estimate(s2, d2.session, h2)
+    b1 = ev.estimate("B1", g2, s2, d2.session)
+    mot = g2.phase == "motion"
+    worse = float(np.max(np.abs(wrap_rad(geo.delta_rad[mot] - g2.delta_rad[mot]))
+                         - np.abs(wrap_rad(b1[mot] - g2.delta_rad[mot]))))  # fmt: skip
+    ok = rel < 1e-9 and mean_ok and lim < 0.01 and prod_ok and reset_ok and checked > 0 and worse <= 1e-12
+    return CheckResult(f"(a) max relative error {rel:.1e}, mean unchanged {mean_ok}; (b) max {100 * lim:.3f} % off; "
+                       f"(c) identical {prod_ok}; (d) {len(resets)} reboots, {checked} checked before the next window, "
+                       f"kappa 0: {reset_ok}; (e) GEO-ID minus B1 error at most {_deg(worse):+.1e}°", ok)  # fmt: skip
+
+
+@register(
+    "28.1",
+    "Invariances of GEO: one common yaw, one pod's yaw, tilt (brief §5.9)",
+    "Default config, 20 s synthetic walk, 10-minute idle, seed 2. (a) Re-simulate with β = 73° added to every pod's "
+    "north: GEO-ID and GEO-K over the motion; (b) with γ = 23° added to pod 9 (LeftUpLeg): every joint's change "
+    "against +γ for l_hip, −γ for l_knee and 0 elsewhere; (c) GEO-ID's chain corrections applied to every pod's "
+    "reports: the world-up direction in each pod's frame before and after.",
+    "North and the room's heading are unknowable; an estimator that depends on them, or lets one pod's north leak "
+    "into other joints, is broken (Step 1 brief §4.5).",
+    "(a) every output within 0.5°; (b) each joint's change within 0.5° of its expected value; (c) < 1e-12",
+    "pytest tests/test_validation.py -k check_28_1",
+)
+def _geo_invariance(quick: bool) -> CheckResult:
+    from .body import JOINTS
+    from .conventions import gravity_in_body
+    from .correction import apply_corrections, chain_corrections_rad
+    from .estimators.contract import GeoTruth
+    from .estimators.geo import GeoEstimator
+
+    def run(hook):
+        d, _, series, host, cfg = _geo_session(None, seed=2, plan_hook=hook, **{"session.idle_s": 600.0})
+        from . import evaluate as ev
+
+        mot = ev.Grid(d.labels_joints).phase == "motion"
+        out = {}
+        for name, truth in (("GEO-ID", None), ("GEO-K", GeoTruth.from_meta(d.meta))):
+            out[name] = GeoEstimator(cfg, truth).estimate(series, d.session, host).delta_rad[mot]
+        return out, series
+
+    base, series = run(None)
+    common, _ = run(_shift_offsets({i: np.deg2rad(73.0) for i in range(15)}))
+    one, _ = run(_shift_offsets({9: np.deg2rad(23.0)}))
+    d_common = max(_deg(np.max(np.abs(wrap_rad(common[k] - base[k])))) for k in base)
+    expect = np.array([np.deg2rad(23.0) if j.child == 9 else (-np.deg2rad(23.0) if j.parent == 9 else 0.0)
+                       for j in JOINTS])  # fmt: skip
+    d_one = max(_deg(np.max(np.abs(wrap_rad(one[k] - base[k] - expect)))) for k in base)
+    rows = series[series["received"] & series["valid"]].head(600)
+    q = rows[["qx", "qy", "qz", "qw"]].to_numpy()
+    c = chain_corrections_rad(base["GEO-ID"][-1])[rows["pod_id"].to_numpy()]
+    tilt = float(np.max(np.abs(gravity_in_body(apply_corrections(q, c)) - gravity_in_body(q))))
+    ok = d_common < 0.5 and d_one < 0.5 and tilt < 1e-12
+    return CheckResult(f"(a) common 73°: max change {d_common:.4f}° (GEO-ID and GEO-K); (b) pod 9 by 23°: max "
+                       f"deviation from ±γ / 0 {d_one:.4f}°; (c) tilt change {tilt:.1e}", ok)  # fmt: skip
+
+
+@register(
+    "30.1",
+    "Coverage on validation after recalibration: 68 % and 95 % per joint type",
+    "GEO-ID with the configured (fitted) calibration on the validation sessions of the synthetic stand-in dataset "
+    "(seed 1; 2 sequences and 12 sessions; quick: 1 sequence): the share of motion-phase steps whose error lies "
+    "inside the central 68 % and 95 % von Mises intervals of the reported kappa, per joint type. The AMASS validation "
+    "numbers come from `python -m mesqsim fit-geometry calibration --source amass` and docs/RESULTS_STEP2.md.",
+    "Confidence is only useful if it is calibrated (H5); the brief asks that the numbers exist here and treats the "
+    "±5-point target as a result, not a check.",
+    "every coverage a number in [0, 1]",
+    "python -m mesqsim fit-geometry calibration --source synthetic",
+)
+def _coverage_check(quick: bool) -> CheckResult:
+    from .body import JOINTS
+    from .config import load_config
+    from .conventions import vm_halfwidth_rad
+    from .dataset import synthetic_sources
+    from .estimators.geo import GeoParams, replay
+    from .geo_fit import calibration_worker
+    from .geo_sessions import dataset_jobs
+    from .paths import REPO_ROOT
+
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml")
+    jobs = dataset_jobs(cfg, synthetic_sources(), 1, splits=("val",), max_sequences=1 if quick else None)
+    gp = GeoParams(cfg)
+    jt = np.array([j.jtype for j in JOINTS])
+    cov = {t: {0.68: [], 0.95: []} for t in ("hinge", "2dof", "3dof")}
+    for job in jobs:
+        r = calibration_worker(job, cfg)
+        mu, kap, _ = replay(r["events"], r["t_query"], float(cfg["geometry.drift_q_rad2_per_s"]), gp.scales(),
+                              gp.model_sigmas_rad(), gp.weight(True))  # fmt: skip
+        err = np.abs(wrap_rad(mu - r["truth"]))
+        for t in cov:
+            for lev in (0.68, 0.95):
+                cov[t][lev].append(err[:, jt == t] <= vm_halfwidth_rad(kap[:, jt == t], lev))
+    res = {t: {lev: float(np.mean(np.concatenate([x.ravel() for x in v]))) for lev, v in cov[t].items()} for t in cov}
+    ok = all(0.0 <= x <= 1.0 for t in res.values() for x in t.values())
+    txt = "; ".join(f"{t} {res[t][0.68]:.3f} / {res[t][0.95]:.3f}" for t in res)
+    return CheckResult(f"{len(jobs)} sessions, 68 % / 95 % coverage: {txt}", ok)
+
+
+@register(
+    "32.1",
+    "DIODEM: files, the truth's sign, and GEO-ID against the optical truth on one hinge",
+    "(a) Every DIODEM file against manifests/diodem.csv; (b) the truth's sign on a synthetic rotation: q_vqf = "
+    "Y(-psi)·q_opt with psi = 30° must give psi = -heading(q_vqf·q_opt^-1) = 30°, and psi_p = 12°, psi_c = 5° must "
+    "give delta = -7°; (c) GEO-ID, unchanged, on arm exp01, hinge seg2 -> seg3 (6.1 min, rigid IMUs, six-axis VQF at "
+    "40 Hz, no box, no T-pose), against the optical relative heading; regenerates docs/figures/diodem_geo_hinge.png.",
+    "A reality check on real sensors whose north drifts (−80° in 6 min here): the geometry must track what a perfect "
+    "registration at the start cannot. Out of distribution (mechanical chains): no claim about people.",
+    "(a) 267 of 267 files ok; (b) 30.000°, -7.000°; (c) GEO-ID's median error below the start registration's",
+    "python scripts/make_figures.py",
+)
+def _diodem_geo(quick: bool) -> CheckResult:
+    from .config import load_config
+    from .data import diodem
+    from .diodem_geo import psi_from_vqf_and_optical, run_hinge
+    from .manifest import verify_manifest
+    from .paths import REPO_ROOT, data_dir, manifest_dir
+
+    q_opt = quat_normalize(np.random.default_rng(3201).normal(size=(50, 4)))
+    psi = float(np.rad2deg(np.median(psi_from_vqf_and_optical(quat_mul(yaw_quat(np.full(50, -np.deg2rad(30.0))),
+                                                                       q_opt), q_opt))))  # fmt: skip
+    p_p = psi_from_vqf_and_optical(quat_mul(yaw_quat(-np.deg2rad(12.0)), q_opt[:1]), q_opt[:1])
+    p_c = psi_from_vqf_and_optical(quat_mul(yaw_quat(-np.deg2rad(5.0)), q_opt[:1]), q_opt[:1])
+    delta = _deg(float(wrap_rad(p_c - p_p)[0]))
+    sign_ok = abs(psi - 30.0) < 1e-9 and abs(delta + 7.0) < 1e-9
+    if not diodem.is_available():
+        return CheckResult(f"(b) psi {psi:.3f}°, delta {delta:.3f}°; DIODEM not downloaded", None if sign_ok else False)
+    res = verify_manifest(manifest_dir() / diodem.MANIFEST, data_dir())
+    n_ok = sum(s == "ok" for _, s, _ in res)
+    cfg = load_config(REPO_ROOT / "configs" / "default.yaml")
+    r = run_hinge(diodem.load_trial(1), "seg2", "seg3", cfg)
+    err = np.rad2deg(np.abs(wrap_rad(r["delta_rad"] - r["truth_rad"])))
+    ref = np.rad2deg(np.abs(wrap_rad(r["start_oracle_rad"] - r["truth_rad"])))
+    if not quick:
+        from .figures import diodem_geo_figure
+
+        diodem_geo_figure(r, "arm exp01, hinge seg2 → seg3", REPO_ROOT / "docs" / "figures" / "diodem_geo_hinge.png")
+    ok = sign_ok and n_ok == len(res) == 267 and np.nanmedian(err) < np.nanmedian(ref)
+    return CheckResult(f"(a) {n_ok} of {len(res)} files ok; (b) psi {psi:.3f}°, delta {delta:.3f}°; (c) GEO-ID median "
+                       f"{np.nanmedian(err):.2f}° (P95 {np.nanpercentile(err, 95):.2f}°, first information after "
+                       f"{r['t_first_info_s']:.1f} s) against {np.nanmedian(ref):.2f}° for a perfect registration at "
+                       f"the start (end {ref[-1]:.1f}°)", ok)  # fmt: skip

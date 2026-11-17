@@ -147,3 +147,44 @@ def random_walk_figure(points: list, n_pods: int, out: Path) -> Path:
     fig.savefig(out, metadata={"Software": None})
     plt.close(fig)
     return out
+
+
+def diodem_geo_figure(r: dict, label: str, out: Path) -> Path:
+    """GEO-ID on one DIODEM hinge: relative heading against the optical truth (top), errors (bottom).
+
+    ``r`` is :func:`mesqsim.diodem_geo.run_hinge` output. The band is GEO-ID's central 95 % von Mises interval.
+    """
+    import matplotlib.pyplot as plt
+
+    from .conventions import vm_halfwidth_rad, wrap_rad
+
+    plotstyle.apply()
+    t_min = r["t_s"] / 60.0
+    truth = np.rad2deg(np.unwrap(r["truth_rad"]))
+    # draw the estimate on the truth's unwrapped branch, so 180° crossings do not look like jumps
+    geo = truth + np.rad2deg(wrap_rad(r["delta_rad"] - r["truth_rad"]))
+    start = truth + np.rad2deg(wrap_rad(r["start_oracle_rad"] - r["truth_rad"]))
+    hw = np.rad2deg(vm_halfwidth_rad(r["kappa"], 0.95))
+    hw = np.where(hw > 90.0, np.nan, hw)
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(8.0, 5.6), sharex=True, gridspec_kw={"height_ratios": [3, 2]})
+    a1.fill_between(t_min, geo - hw, geo + hw, color=plotstyle.SERIES[1], alpha=0.18, lw=0,
+                    label="GEO-ID 95 % interval")
+    a1.plot(t_min, truth, color=plotstyle.SERIES[0], lw=1.4, label="optical truth δ")
+    a1.plot(t_min, geo, color=plotstyle.SERIES[1], lw=1.0, label="GEO-ID δ̂ (from the six-axis IMUs only)")
+    a1.plot(t_min, start, color=plotstyle.MUTED, lw=1.0, ls="--", label="perfect registration at t = 0")
+    a1.set_ylabel("relative heading δ (deg)")
+    a1.set_title(f"DIODEM {label}: GEO-ID against the optical truth", loc="left")
+    a1.legend(loc="best", fontsize=7)
+    e_geo = np.abs(np.rad2deg(wrap_rad(r["delta_rad"] - r["truth_rad"])))
+    e_start = np.abs(np.rad2deg(wrap_rad(r["start_oracle_rad"] - r["truth_rad"])))
+    a2.plot(t_min, e_start, color=plotstyle.MUTED, lw=1.0, ls="--", label="perfect registration at t = 0")
+    a2.plot(t_min, e_geo, color=plotstyle.SERIES[1], lw=1.0, label="GEO-ID")
+    a2.set_ylabel("|error| (deg)")
+    a2.set_xlabel("time since start of trial (min)")
+    a2.set_ylim(bottom=0)
+    a2.legend(loc="upper left", fontsize=7)
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, metadata={"Software": None})
+    plt.close(fig)
+    return out
