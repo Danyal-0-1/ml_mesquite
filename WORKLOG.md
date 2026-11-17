@@ -731,3 +731,79 @@ Both milestones' "done when" criteria are checks below.
 **Open questions.** On AMASS the knee is far from an exact hinge in SMPL's frames (off-axis RMS up to 11°) and the
 2-DoF joints turn 9–20° about their third axis, so the assumed model errors (2°, 3°) are too small: S2-M4 fits them
 on validation.
+
+---
+
+## 2026-11-17 · S2-M4 and S2-M5 (filter calibration; DIODEM) · branch `s2-m4` (from `main` = `6db73cc`)
+
+**Previous entry's commits.** `894ba79`, `05dc726`, `72f3eb3` (S2-M2/M3), merged into `main` by pull request #3 as
+`6db73cc`; tags `step2-m2`, `step2-m3`.
+
+**Plan stated.** S2-M4: windows, the filter, reboot resets, the hold rule and the κ recalibration on validation
+(facing, a *Should*, came with S2-M3 from the knees). S2-M5: GEO-ID on DIODEM against the optical truth, the DIODEM
+checks and a one-hinge figure. One pull request for both (the DIODEM figure depends on the calibration).
+
+**Files added.** `mesqsim/{geo_sessions,diodem_geo}.py`, `tests/test_filter.py`, `docs/figures/diodem_geo_hinge.png`.
+**Changed.** `mesqsim/estimators/{geo,hinge}.py`, `mesqsim/{geo_fit,cli,evaluate,figures,validation}.py`,
+`scripts/validate.py`, `configs/default.yaml`, `tests/{test_hinge,test_config_write}.py`,
+`docs/{MATH,PIPELINE,CODE,VALIDATION}.md`, `README.md`.
+
+**What was built.**
+- Solvers return their statistical κ; the filter receives κ_w = s·κ_stat/(1 + κ_stat·σ_m²) per joint type (the model
+  errors are now `geometry.model_sigma_deg.{hinge,2dof,3dof}`). The estimator records its events (`GeoEvents`) and its
+  outputs come from `replay`, which the fits reuse; a test shows replay reproduces GEO-ID, GEO-K and the no-filter
+  ablation bit for bit.
+- `geo_sessions`: the dataset's sessions of a split, simulated, decoded and estimated in memory, in worker processes,
+  with the dataset's own seeds.
+- `geo_fit.fit_calibration` and `python -m mesqsim fit-geometry calibration`: (s, σ_m) per joint type by maximum
+  likelihood of the window errors (the scale alone when the joint optimum lies on a bound), q on a log grid by the
+  filter's log-likelihood at every motion step, κ_hold as the smallest threshold whose retained steps have P95 ≤ 10°.
+- **T-pose-tied knee identification** (below). Checks 27.1 (filter), 28.1 (GEO invariances), 30.1 (coverage), 32.1
+  (DIODEM).
+- `diodem_geo`: GEO-ID, unchanged, on the six-axis VQF orientations of the rigid IMUs at 40 Hz, presented as a Step
+  0-shaped series of two pods (a hinge) with one motion phase; truth ψ = −heading(q_VQF·q_opt⁻¹).
+
+**Commands and results.**
+- First calibration (`fit-geometry calibration --source amass --seed 1 --write` at `862e352`, clean worktree): 330
+  validation sessions of 78 sequences, 2 min 52 s; the hinge scale came out 0.0004, i.e. knee windows worth only
+  σ ≈ 20°. **Diagnosis** (scratch script, 60 validation sessions at 10 min): GEO-K's knee windows had median error 5.2°
+  (P95 14.1°; the SMPL knee is not an exact hinge), but GEO-ID's 11.6° (P95 90°, 5 % beyond 90°), and its identified
+  axes lay a median 19.5° (P90 60°) from the truth: when thigh and shin turn together, every pair of axes with matching
+  angles satisfies Seel's condition, so the free fit wandered. **Fix:** in the T-pose the knee axis is horizontal and
+  one line in both segments, so with box registration only its azimuth is unknown (a 1-D search), a contrast test
+  rejects motion that does not identify it, and a local refinement within 15° corrects posture error; the tie fixes
+  the relative sign. Same sessions: GEO-ID's knee windows median 6.6°, P95 17.2°, none beyond 90°; axes a median 5.8°
+  (max 19.1°) from the truth; 804 of 2,400 knee windows identifiable (the rest hold the box estimate). The first
+  calibration was discarded.
+- Second calibration at `944b822` (clean worktree), 330 sessions, 2 min 9 s, **written with label `fitted`**: s hinge
+  60.15, 2dof 0.752 (scale only), 3dof 4.577; σ_m hinge 66.04°, 3dof 20.85° (2dof: 3° kept); so the largest window κ is
+  45.2 (σ ≈ 8.5°) at the knee and 34.6 at 3-DoF joints. q = 5.623e-05 rad²/s; κ_hold = 89.13 (35.1 % of validation
+  steps certain). Validation coverage 68 % / 95 %: hinge 0.715 / 0.945, 2dof 0.702 / 0.949, 3dof 0.728 / 0.949, all
+  0.715 / 0.948. Report: `$MESQ_OUTPUT_DIR/fit_calibration_g944b822_amass_s1/report.json`.
+- DIODEM arm exp01, hinge seg2 → seg3 (6.1 min, six-axis drift −80.7°): GEO-ID's median error 7.8° (P95 24.5°) with the
+  beliefs before the fit, **15.0° (P95 29.5°) with the AMASS-fitted beliefs**, against 80.7° for a perfect registration
+  at the start; first geometric information after 3.0 s. The AMASS knee calibration (σ ≈ 8.5° per window) is
+  pessimistic for a near-perfect mechanical hinge, so the filter follows the fast six-axis drift more slowly: a
+  transfer effect, reported in RESULTS_STEP2 with both settings.
+- `bash scripts/check_all.sh` at `6b6b270` (clean worktree), 2026-11-17 22:39 UTC, 2 min 54 s: `ruff` clean; `pytest`
+  **213 passed**; validation **51 passed, 0 failed, 0 skipped of 51**. 27.1: prediction exact to 4.4e-16, large-κ limit
+  within 0.30 %, product identical, 3 of 3 reboots reset κ to 0, GEO-ID never worse than B1 without information;
+  28.1: a common 73° yaw moves GEO outputs by at most 0.032°, one pod's 23° lands on its two joints within 0.0051°,
+  tilt 1e-17; 29.1: O2 0 ≤ GEO-K 8.20–8.21° ≤ B1 19.87–19.90°; 30.1 (synthetic validation, AMASS-fitted beliefs):
+  hinge 0.750 / 1.000, 2dof 0.638 / 0.807, 3dof 0.682 / 0.976; 32.1: 267 files ok, ψ 30.000°, δ −7.000°, GEO-ID 15.01°
+  against 80.71°.
+- A first full-check run at `9b1…` failed one test only (`test_config_write` expected `kappa_hold`'s label line to
+  change, but it was already `fitted`); fixed so the test checks that only that leaf's lines change.
+
+**Decisions.**
+- The calibration model adds a model-error term to the brief's single scale, and falls back to the scale alone where
+  the data cannot tell the two apart (2-DoF here). The knee's "σ_m = 66°" is not physical on its own: with s = 60.15
+  it caps a knee window at κ = 45 (σ ≈ 8.5°), matching its windows' 6.6° median error.
+- κ_hold is fitted as "the smallest threshold whose kept validation steps have P95 ≤ 10°" (`hold_target_p95_deg`, an
+  assumption): "uncertain" means not shown on validation to be within that bound.
+- GEO-ID's knee axes are tied to the T-pose whenever its snapshot and the box prior are valid; DIODEM (no T-pose) uses
+  the free fit with the same contrast test.
+- DIODEM's estimator is GEO-ID unchanged (two IMUs as pods 9/10), not a separate pipeline. Only hinges are covered.
+
+**Open questions.** Whether the calibration should differ for the real suit's knees (closer to SMPL's or to a
+mechanical hinge?) is for the bench data to answer.
