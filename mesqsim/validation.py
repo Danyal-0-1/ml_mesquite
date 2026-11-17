@@ -697,7 +697,6 @@ def _heading_pods(n_sessions: int, cfg_overrides: dict, motion: str, hook=None):
     cfg = load_config(REPO_ROOT / "configs" / "default.yaml").with_preset("zero").with_overrides(cfg_overrides)
     mot = MotionSource.from_spec(motion)
     arw = np.deg2rad(cfg["error_model.arw_deg_per_sqrt_s"])
-    turns = cfg["error_model.idle_turns_sigma_per_sqrt_min"]
     out = []
     for seed in range(n_sessions):
         plan = plan_session(cfg, seed, mot)
@@ -706,7 +705,7 @@ def _heading_pods(n_sessions: int, cfg_overrides: dict, motion: str, hook=None):
         r_ep, r_walk = stream(seed, "epochs"), stream(seed, "walk")
         for p in plan.pods:
             eps = pod_epochs(cfg, plan, mot, p, r_ep)
-            hd = build_pod_heading(plan, mot, p.pod_id, eps, p.drift_rad_per_s, p.scale_factor, arw, turns, r_walk)
+            hd = build_pod_heading(plan, mot, p.pod_id, eps, p.drift_rad_per_s, p.scale_factor, arw, r_walk)
             out.append((plan, p, hd))
     return out
 

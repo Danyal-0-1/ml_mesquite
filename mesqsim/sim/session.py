@@ -55,6 +55,7 @@ class SessionPlan:
     facing_motion_rad: float  # phi_m: rotation applied to the motion source
     motion_name: str
     pods: list  # PodParams by pod id
+    idle_turns: int = 0  # whole turns of the wearer about the vertical during the idle: one body, every pod turns
 
     def phase_of(self, t_s) -> np.ndarray:
         t = np.asarray(t_s, float)
@@ -106,7 +107,7 @@ def _reboot_times(cfg: Config, rng: np.random.Generator, boot_s: float, t_end_s:
 def plan_session(cfg: Config, seed: int, motion: MotionSource) -> SessionPlan:
     """Draw the timeline and every pod's parameters for one session."""
     r_time, r_pod, r_head = stream(seed, "timeline"), stream(seed, "pods"), stream(seed, "heading")
-    r_drift, r_reboot = stream(seed, "drift"), stream(seed, "reboots")
+    r_drift, r_reboot, r_turns = stream(seed, "drift"), stream(seed, "reboots"), stream(seed, "idle_turns")
 
     box_s, strap_s, tpose_s = cfg["session.box_s"], cfg["session.strapping_s"], cfg["session.tpose_s"]
     idle_s = float(cfg["session.idle_s"])
@@ -166,7 +167,11 @@ def plan_session(cfg: Config, seed: int, motion: MotionSource) -> SessionPlan:
             drift_rad_per_s=drift, scale_factor=scale, reboots_s=reboots,
         ))  # fmt: skip
     assert len(pods) == N_PODS
-    return SessionPlan(phases, host_epoch_s, box_heading, facing_t, facing_m, motion.name, pods)
+    # the wearer's whole turns in the idle (brief §4.3 "an assumed amount of turning"): drawn once for the body, so
+    # every pod turns by the same amount and only the pods' different scale factors k_i make it a relative error
+    sigma_turns = float(cfg["error_model.idle_turns_sigma_per_sqrt_min"]) * np.sqrt(idle_s / 60.0)
+    idle_turns = int(np.round(r_turns.normal(0.0, sigma_turns))) if sigma_turns > 0 else 0
+    return SessionPlan(phases, host_epoch_s, box_heading, facing_t, facing_m, motion.name, pods, idle_turns)
 
 
 def tpose_segment_q(plan: SessionPlan, pod: int) -> np.ndarray:

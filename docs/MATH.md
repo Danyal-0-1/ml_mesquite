@@ -84,7 +84,7 @@ their sources.
 | angle random walk w_i | Brownian, variance N_g²·t | N_g = 0.015 °/s/√Hz (0.367° after 10 min) | — | datasheet |
 | fusion error η_i | Gauss–Markov per pod axis, stationary σ, correlation time τ | σ = 0.5°, τ = 1 s | — | assumption |
 | reboots | Poisson per pod; silent for 3 s; then count, clock and Θ restart and a new north a_e is chosen | 0 per hour | 0, 1 per hour | assumption |
-| idle turning | whole turns ~ round(N(0, (0.5·√minutes)²)) of the wearer | 0.5 turns/√min | — | assumption |
+| idle turning | whole turns ~ round(N(0, (0.5·√minutes)²)) of the wearer, drawn once per session and shared by all 15 pods (S2-M6 fix: until then each pod drew its own) | 0.5 turns/√min | — | assumption |
 | quantisation | trunc(float32(v)·32767), step about 0.0035° | — | — | firmware |
 
 ### 5.2 Θ: the turning that the scale factor multiplies
@@ -98,7 +98,8 @@ vertical component of the pod's world angular velocity.
   0.015 × 360° = 5.4° (check 6.3, through the whole simulator on a walk in a circle).
 - Θ grows during strapping (each pod's own whole turns while carried), during motion, and over the idle interval.
 - The idle interval is never recorded, so its turning is one step: the net twist about the vertical between the
-  pose before and after it, plus whole turns drawn from the idle-turning model. The random walk over the idle is
+  pose before and after it, plus the wearer's whole turns drawn from the idle-turning model (`SessionPlan.idle_turns`:
+  one number per session, so a whole turn moves every pod's Θ by 2π and changes δ only by (k_c − k_p)·2π). The random walk over the idle is
   one increment N(0, N_g²·Δt). Inside the idle, Θ and w are interpolated linearly; nothing there is recorded.
 
 ### 5.3 The session in true time (seconds from the first power-on)

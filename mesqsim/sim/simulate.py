@@ -109,7 +109,7 @@ def simulate_session(cfg: Config, seed: int, motion: MotionSource, plan_hook=Non
         p = plan.pods[i]
         epochs = pod_epochs(cfg, plan, motion, p, rngs["epochs"])
         hd: PodHeading = build_pod_heading(plan, motion, i, epochs, p.drift_rad_per_s, p.scale_factor, arw,
-                                           cfg["error_model.idle_turns_sigma_per_sqrt_min"], rngs["walk"])  # fmt: skip
+                                           rngs["walk"])  # fmt: skip
         headings.append(hd)
         epoch_meta.append([vars(e) for e in epochs])
 
