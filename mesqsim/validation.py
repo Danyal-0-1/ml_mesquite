@@ -1602,3 +1602,28 @@ def _results_repro(quick: bool) -> CheckResult:
     same = not diff and len(texts[0]) == len(texts[1])
     return CheckResult(f"{len(texts[0])} lines compared; identical apart from the Run line: {same}"
                        + (f" (first difference at line {diff[0] + 1})" if diff else ""), same)
+
+
+# ---------------------------------------------------------------- Step 3 (check 39 + n is Step 3 brief §10, item n)
+
+@register(
+    "49.1",
+    "The analysis of 2026-11-14 is reproduced (Step 3 brief §5.3)",
+    "Φ1-Φ12 of Danyal's seven recordings (mesqsim.real: the BVH and Motive readers, marker naming and following, "
+    "the clock alignment, the statistics) against the 62 reference values of §5.3, each within its tolerance.",
+    "The twin will be judged by these statistics, so the code that measures them must first reproduce the "
+    "analysis it inherits; every value it does not reproduce needs a written reason (Step 3 brief §5.3).",
+    "every value reproduced or listed with its reason in mesqsim.real.recordings.EXPLAINED_DIFFERENCES",
+    "python -m mesqsim real-stats; pytest -m real tests/test_real_recordings.py",
+)
+def _real_reproduced(quick: bool) -> CheckResult:
+    from .real import recordings
+    from .real.analysis import analyse, compare
+
+    if not recordings.available():
+        return CheckResult(f"recordings not under {recordings.real_suit_dir()}", None)
+    rows = compare({r.id: analyse(r) for r in recordings.RECORDINGS})
+    failed = {(x["statistic"], x["recording"]) for x in rows if not x["ok"]}
+    new = sorted(failed - set(recordings.EXPLAINED_DIFFERENCES))
+    return CheckResult(f"{len(rows) - len(failed)} of {len(rows)} reference values within tolerance; "
+                       f"{len(failed)} explained differences" + (f"; UNEXPLAINED: {new}" if new else ""), not new)

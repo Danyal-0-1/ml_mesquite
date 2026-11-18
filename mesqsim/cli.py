@@ -324,6 +324,9 @@ def main(argv=None) -> int:
     c.add_argument("--yes", action="store_true")
     c.set_defaults(fn=cmd_clean)
 
+    from .cli_step3 import add_parsers  # Step 3's commands live there, so the lines above stay where docs point
+    add_parsers(sub)
+
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     return args.fn(args)

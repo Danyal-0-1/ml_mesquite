@@ -1,0 +1,60 @@
+"""Step 3's commands for ``python -m mesqsim`` (registered by :func:`add_parsers` from :mod:`mesqsim.cli`).
+
+    real-stats [--recording ID ...]   Φ1-Φ12 of Danyal's recordings against the analysis of Step 3 brief §5.3;
+                                      prints the comparison, writes $MESQ_OUTPUT_DIR/real_stats_g<commit>/summary.json
+
+They live in their own module so that adding one never moves a line of ``mesqsim/cli.py``, to which the Step 2
+explanations link by line number.
+"""
+
+from __future__ import annotations
+
+import json
+
+from .paths import output_dir
+
+__all__ = ["add_parsers", "cmd_real_stats"]
+
+
+def _fmt(v) -> str:
+    if isinstance(v, (tuple, list)):
+        return "(" + ", ".join(_fmt(x) for x in v) + ")"
+    if isinstance(v, float):
+        return f"{v:.4f}" if abs(v) < 1 else f"{v:.1f}"
+    return str(v)
+
+
+def cmd_real_stats(args) -> int:
+    from .real import analysis, recordings
+    from .runs import git_commit
+
+    if not recordings.available():
+        print(f"the recordings are not under {recordings.real_suit_dir()} (see manifests/real_suit.csv)")
+        return 1
+    recs = [r for r in recordings.RECORDINGS if not args.recording or r.id in args.recording]
+    results = {}
+    for r in recs:
+        print(f"analysing {r.id} ...", flush=True)
+        results[r.id] = analysis.analyse(r)
+    rows = analysis.compare(results)
+    print(f"\n{'statistic':30s} {'recording':11s} {'value':>26s} {'reference':>22s}  tolerance       ok")
+    for x in rows:
+        flag = {True: "yes", False: "NO", None: "-"}[x["ok"]]
+        print(f"{x['statistic']:30s} {x['recording']:11s} {_fmt(x['value']):>26s} {_fmt(x['reference']):>22s}  "
+              f"{x['tolerance']:15s} {flag}")
+    n_ok = sum(1 for x in rows if x["ok"])
+    print(f"\n{n_ok} of {len(rows)} reference values reproduced within tolerance")
+    commit = git_commit()
+    out = output_dir() / f"real_stats_g{commit[:7]}{'-dirty' if commit.endswith('+dirty') else ''}"
+    out.mkdir(parents=True, exist_ok=True)
+    with open(out / "summary.json", "w", encoding="utf-8") as f:
+        json.dump({"commit": commit, "results": results, "comparison": rows}, f, indent=1, default=float)
+    print(f"wrote {out / 'summary.json'}")
+    return 0
+
+
+def add_parsers(sub) -> None:
+    """Add Step 3's subcommands to the ``python -m mesqsim`` parser."""
+    rs = sub.add_parser("real-stats", help="Φ1-Φ12 of the recordings against Step 3 brief §5.3")
+    rs.add_argument("--recording", nargs="+", help="recording ids (default: all seven)")
+    rs.set_defaults(fn=cmd_real_stats)

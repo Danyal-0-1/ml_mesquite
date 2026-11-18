@@ -1204,3 +1204,84 @@ source: identical; 1,405 lines); `manifests/real_suit.csv` (18 files, 259,733,20
 
 **Open.** The chip axes (the bench test above); the causes of Nov 14's left leg, travel direction and root height
 (S3-M1); the budget, if the default does not suit.
+
+## 2026-11-18 · S3-M1 (the recordings measured) · branch `s3-m1` (stacked on `s3-m0`; nothing pushed, rule 2)
+
+**Plan stated.** `mesqsim/real/`: BVH and Motive readers, marker naming and following, clock alignment, Φ1-Φ12, one
+command; then reproduce Step 3 brief §5.3 or explain every difference here. `mesqsim/twin/page_frame.py` holds the
+frame conversions (rule 10).
+
+**Files added.** `mesqsim/twin/{__init__,page_frame}.py`; `mesqsim/real/{__init__,bvh,motive,markers,align,stats,
+recordings,analysis}.py`; `mesqsim/cli_step3.py` (`real-stats`); `tests/test_page_frame.py`,
+`tests/test_real_{readers,markers,stats,recordings}.py`.
+**Changed.** `mesqsim/cli.py` (two lines at the end of `main` register Step 3's commands: a first version added them
+inside `cli.py` and moved the lines that `docs/explain/CODE_EXPLAINED.md` links to, which the link test caught),
+`mesqsim/validation.py` (check 49.1 at the end; Step 3 checks are numbered 39 + n for brief §10 item n),
+`tests/conftest.py` (`real_results`), `pyproject.toml` (markers `real`, `node`).
+
+**What was built.**
+- Frames (`page_frame.py`): three.js -> world (x, y, z) -> (x, -z, y), +90° about X, so the avatar faces world -Y
+  with its left at +X, as Danyal faced in Motive; Motive -> three.js (x, z, -y) as the brief gives; their composition
+  Motive -> world is the identity (tested). BVH rotations are the product of the channels in order (three.js
+  r157's `BVHLoader.js:177-187`).
+- BVH (`bvh.py`): hierarchy, channels, the page's `;` provenance lines; forward kinematics in the file's frame; the
+  sites of §5.1 (the head pod 10 cm along the Head bone's +Y, since the page writes End Sites as 0 0 0).
+- Markers (`markers.py`): T-pose naming by height order, forward from the pelvis marker (back) to the chest marker
+  (front), left/right by side; then *continuity* (a fragment starting within 0.5 s where the lost marker's velocity
+  predicts, within 8 cm + 50 cm/s of gap) alternating with *templates* (longest fragments first, the free site whose
+  median body coordinates about the head marker match within 25 cm; a left site stays left of its twin, a thigh above
+  its shin), three times. First versions linked by body coordinates only and swapped both thighs at 34 s in
+  `13-41-17` (both markers lost during a turn) and misread `13-59-24` while its pelvis marker was hidden for 27 s; the
+  tracker's facing now sums every cue (pelvis -> head, pelvis -> chest, and the thighs', shins' and upper arms'
+  left-right axes). Share of frames each site is seen, over the five takes: head 98-100 %, pelvis 92-100 %, shins
+  83-100 %, thighs 44-100 % (the lowest `13-47-28`'s right thigh), chest 71-99 %, upper arms 70-100 %, forearms
+  29-100 %; 1-16 fragments left unnamed per take (strays and ghosts); 91-99 % of moving frames head toward the chest
+  side, so forward is proved in every take.
+- Clocks (`align.py`): coarse lag from the wall clocks, fine lag in ±4 s maximising the leg height-change
+  correlation, *and the frame interval* (32.80-33.60 ms).
+- Statistics (`stats.py`, `analysis.py`) and `python -m mesqsim real-stats`, which prints the comparison and writes
+  `$MESQ_OUTPUT_DIR/real_stats_g<commit>/summary.json`.
+
+**Findings.**
+- **The page of 2026-11-13 recorded every 33.0 ms although it wrote `Frame Time: 0.0333333`.** At 1/30 s no single
+  lag aligns the long takes (`13-41-17`: leg r 0.30); at 33.0 ms one lag holds in every 40 s window (−0.34 to −0.41 s)
+  with r 0.69-0.83. Fitted intervals: 33.00 and 33.01 ms on the long takes, 32.91-33.05 ms on the short ones. The new
+  page measured 33.0 ms on Nov 14 (`setInterval(1000/30)`). With the fitted interval the two computers' clocks agree
+  within 0.18-0.90 s; the brief's 1.2-3.3 s was the disagreement under the asserted frame time. BVH-only statistics
+  keep the file's frame time, as the reference did; their times are 1 % long on Nov 13. For the twin: the old
+  recorder asserts 1/30 s while sampling at 33.0 ms.
+- "Height change" for the alignment is the height minus its centred 2 s moving mean, the drawn height taken relative
+  to the drawn root (whose height is the phone's, halved, and moves every drawn site). With it the legs correlate at
+  0.63-0.87 in the four well-tracked takes and negatively when left and right are swapped (the brief's check), and
+  0.33-0.67 in `13-59-24`, whose single-leg swings leave one leg still.
+- Nov 14: the root's travel minus facing spreads over the whole circle (mode 60-90°, median +64°, circular mean +83°).
+- Nov 4: the 17.3 min of the static hold end at the first restart (LeftHand, 1044.3 s = 17.41 min; a second at
+  1116.6 s); 12 of the 13 other pods drift less than 1.8° over the window, the Head 14.1° (−0.81°/min); the rest at
+  most 1.68°.
+
+**The reproduction of §5.3** (`python -m mesqsim real-stats` at `47af39b` plus these files, 9.5 s): **48 of 62
+reference values within tolerance.** Reproduced: Φ1 6/6; Φ3 drawn shins 4/6, Nov 14 thighs; Φ4; Φ5 scale 5/5 and
+heights 5/5; Nov 14's root height; Φ6 6/6; Φ7 5/6; Φ8 4/7; Φ9; Φ10 6/6; Φ12. The 14 differences, after comparing the
+definitions (no bug found; nothing was tuned to a reference value), with their reasons in
+`mesqsim/real/recordings.py:EXPLAINED_DIFFERENCES`:
+- Φ3, the left shin of `13-42-39` and `13-47-28`, drawn (−75° and −54° against −63° and −40°) and true (+29° and
+  +19° against +12° and +1°), and `13-44-44`'s true left shin (+10.3° against +5°, 0.3° beyond the tolerance): the
+  left shin's swing is nearly round there (minor over major spread 0.70-0.87; the right shin's 0.38-0.66), so its
+  axis moves with the frames counted as walking in takes with 10-19 s of it. Keeping only frames that move forward
+  reproduces `13-42-39` but breaks Nov 14, whose travel is 74° off the facing; the literal definition stays.
+- Φ7 Nov 14 (+63.7° against +73.7°): the spread above; the median moves with the 99 s (here) against 96 s of walking.
+- Φ8 `13-41-17`, `13-59-24`, Nov 4 (15.5, 47.8, 85.6 % against 11.8, 40.8, 79 %): the brief's median over bones of
+  the recorded (local) rotations. Global rotations give 0.4-46 %, far off. Pooled over bones without Hips, 6 of 7
+  values match (Nov 4 79.5 %, `13-41-17` 10.5 %), all but `13-59-24` (55 %); the median over bones is kept, as the
+  brief defines it. Danyal may know which was meant.
+- Φ11, the upper arms (all five pairs; components within 0.10 in 4 of 10): the arms are the hardest markers to follow
+  and r depends on which frames each analysis names; `13-41-17`'s left arm comes out +0.83 against −0.42 under
+  heights, heights relative to the root, height changes, and either clock. Not reproduced.
+
+**Decisions.** Φ8 and Φ9 use each bone's recorded (local) rotation; Φ12 each pod's drawn world rotation. Φ1 uses the
+standard deviation of both body coordinates together. Φ7 is positive anticlockwise seen from above (to the left of the
+facing; the reference's sign agrees on all six). A jump "snaps back" if the bone returns within 5° of its pre-jump
+rotation within 0.5 s (this module's choice). Recording ids `nov04`, `nov13_1341` ... `nov13_1359`, `nov14`; the
+proposed split (§5.4) and suit versions are in `recordings.py` for Danyal to freeze.
+
+**Open.** Whether the reference Φ8 was pooled; the arm tracking behind Φ11.
