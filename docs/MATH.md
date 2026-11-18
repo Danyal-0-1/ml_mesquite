@@ -1,6 +1,6 @@
 # The mathematics
 
-*Status: S2-M5. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections §9–§17 (clock, von Mises, events, hinge, 2-DoF, range of motion, facing, calibration, DIODEM).*
+*Status: S2-M6. Complete for the simulator, Step 0 and the Step 1 baselines; Step 2 sections §9–§18 (clock, von Mises, events, hinge, 2-DoF, range of motion, facing, calibration, DIODEM, results statistics).*
 
 ## 1. Picture first
 
@@ -84,7 +84,7 @@ their sources.
 | angle random walk w_i | Brownian, variance N_g²·t | N_g = 0.015 °/s/√Hz (0.367° after 10 min) | — | datasheet |
 | fusion error η_i | Gauss–Markov per pod axis, stationary σ, correlation time τ | σ = 0.5°, τ = 1 s | — | assumption |
 | reboots | Poisson per pod; silent for 3 s; then count, clock and Θ restart and a new north a_e is chosen | 0 per hour | 0, 1 per hour | assumption |
-| idle turning | whole turns ~ round(N(0, (0.5·√minutes)²)) of the wearer | 0.5 turns/√min | — | assumption |
+| idle turning | whole turns ~ round(N(0, (0.5·√minutes)²)) of the wearer, drawn once per session and shared by all 15 pods (S2-M6 fix: until then each pod drew its own) | 0.5 turns/√min | — | assumption |
 | quantisation | trunc(float32(v)·32767), step about 0.0035° | — | — | firmware |
 
 ### 5.2 Θ: the turning that the scale factor multiplies
@@ -98,7 +98,8 @@ vertical component of the pod's world angular velocity.
   0.015 × 360° = 5.4° (check 6.3, through the whole simulator on a walk in a circle).
 - Θ grows during strapping (each pod's own whole turns while carried), during motion, and over the idle interval.
 - The idle interval is never recorded, so its turning is one step: the net twist about the vertical between the
-  pose before and after it, plus whole turns drawn from the idle-turning model. The random walk over the idle is
+  pose before and after it, plus the wearer's whole turns drawn from the idle-turning model (`SessionPlan.idle_turns`:
+  one number per session, so a whole turn moves every pod's Θ by 2π and changes δ only by (k_c − k_p)·2π). The random walk over the idle is
   one increment N(0, N_g²·Δt). Inside the idle, Θ and w are interpolated linearly; nothing there is recorded.
 
 ### 5.3 The session in true time (seconds from the first power-on)
@@ -309,13 +310,27 @@ so the fit wanders. GEO-ID therefore uses the T-pose, as the suit's own calibrat
 and its axis horizontal (u_p ⊥ g_p, world up in the thigh pod frame) and one line in both segments, so with box
 registration's δ_T, u_c = q_c(T)⁻¹·Y(−δ_T)·q_p(T)·u_p. Only the azimuth of u_p is unknown: a 1° grid over [0°, 180°)
 and a golden-section refinement ([hinge.py](../mesqsim/estimators/hinge.py) `identify_hinge_axes_tpose`). A fit is
-accepted only if it stands out: its cost at most `geometry.axis_contrast_max` (0.25) × the median cost over the other
-azimuths (for the free fit, over 16 fixed probe axes); a rigid motion fails this. A local four-angle refinement then
-corrects T-pose posture error and is kept only within `geometry.axis_tpose_tolerance_deg` (15°) of the tied answer.
-The tie fixes the relative sign. Same 60 sessions: knee windows median 6.6°, P95 17.2°, none beyond 90°; axes a median
-5.8° (max 19.1°) from the truth; GEO-K, with the true axis, has median 5.2°, P95 14.1° (the SMPL knee is not an exact
-hinge). Only 804 of 2,400 knee windows had an identifiable axis: in non-walking sequences the estimator holds the
-box estimate instead of guessing. Without a T-pose (DIODEM) the free fit is used, with the same contrast test.
+accepted only if it stands out: its cost at most `geometry.axis_tpose_contrast_max` (0.8) × the median cost over the
+other azimuths (for the free fit, `geometry.axis_contrast_max` (0.25) × the median over 16 fixed probe axes); a rigid
+motion fails this. A local four-angle refinement then corrects T-pose posture error and is kept only within
+`geometry.axis_tpose_tolerance_deg` (15°) of the tied answer. The tie fixes the relative sign. Same 60 sessions (S2-M4,
+tied threshold 0.25): knee windows median 6.6°, P95 17.2°, none beyond 90°; axes a median 5.8° (max 19.1°) from the
+truth; GEO-K, with the true axis, has median 5.2°, P95 14.1° (the SMPL knee is not an exact hinge). But only 804 of
+2,400 knee windows had an identifiable axis. **S2-M6 relaxed the tied threshold from 0.25 to 0.8**, on validation
+evidence alone: on 156 AMASS validation sessions the knee axes had been accepted in only 44–47 % of sessions, although
+tied fits with contrast 0.25–0.8 were as accurate (median axis error 6–9°) as those below 0.25 (above 0.8: median
+13–24°); at 0.8 the facing is found in 91 % of sessions instead of 56 %, and every joint type gains (mean session
+median, hinge 7.62° → 6.50°, 2-DoF 7.61° → 7.05°, 3-DoF 8.21° → 7.31°; B1 8.90°, 8.33°, 9.57°; WORKLOG 2026-11-17).
+A rigid motion makes *every* azimuth fit, so all costs are near zero and the contrast is a ratio of two noise terms
+(0.79 in `test_tpose_tied_identification_recovers_the_axis_and_refuses_rigid_motion`); the tied fit must therefore
+also show that a wrong axis fits measurably badly: the RMS residual at the median azimuth at least
+`geometry.axis_min_spread` (0.1) × the RMS rate (that test's rigid motion: below 0.01; all 408 AMASS validation knee
+fits: above 0.3). Without a T-pose (DIODEM) the free fit is used, with its own threshold, unchanged.
+
+**GEO-K has its own calibration** (`geometry.kappa_scale_k.*`, `model_sigma_deg_k.*`, fitted with
+`fit-geometry calibration --estimator K`): its solvers differ from GEO-ID's (known axes; the 2-DoF constraint where
+GEO-ID uses the range of motion). With GEO-ID's calibration its 2-DoF windows were overconfident (a 12-sequence AMASS
+trial: P95 89°, 68 %/95 % coverage 0.25/0.45). q and κ_hold are GEO-ID's and shared.
 On a synthetic walk every window voted for the right sign; identified axes were within 0.02°–0.98° of the truth
 with fusion noise on (scratch run, 4 sessions) and within 0.001° on noise-free motion (check 24.1).
 
@@ -379,7 +394,10 @@ m̂_i = F_T⁻¹·Y(ĉ_i(T))·q_i(T) once φ is known. The brief's way to φ is 
 2. **Facing.** In the T-pose the left-pointing knee axis is the body's left axis: φ = heading of
    Y(ĉ_thigh(T))·q_thigh(T)·u_left; with both knees, their circular mean.
 3. **T-pose frames** m̂_i for every pod whose chain from the pelvis had a box prior at the T-pose. A reboot later
-   does not invalidate them: m̂_i describes the strap, not the north.
+   does not invalidate them: m̂_i describes the strap, not the north. The snapshot (q_i(T) and the box belief) is
+   therefore taken at the end of the T-pose, as an event of its own: until S2-M6 it was taken at the first geometry
+   window, after the idle, where the resets of pods that had rebooted in the idle had already erased their box prior
+   (`test_a_reboot_in_the_idle_keeps_the_tpose_frames`).
 
 On synthetic walks (scratch run, fusion noise and the 5° T-pose posture error on) m̂ was within a median 5.4–5.7°
 of the true mountings, about the posture error. Before the knees are identified, GEO-ID's 2-DoF and 3-DoF joints
@@ -406,22 +424,30 @@ estimator exactly (`test_replay_reproduces_the_estimator_exactly`).
    outputs at every motion-phase 32 Hz step.
 3. **κ_hold:** the smallest threshold whose retained steps (κ ≥ threshold) have a P95 error ≤
    `geometry.hold_target_p95_deg` (10°, an assumption). "Uncertain" then means: not shown, on validation, to be
-   within that bound. The estimate still holds while uncertain.
+   within that bound. If no threshold reaches the target, the threshold whose retained steps have the smallest P95
+   among those keeping at least 10 % of the steps (`geo_fit.fit_hold`; the config's source says which rule applied).
+   The estimate still holds while uncertain.
 
-**Values (AMASS validation, 330 sessions of 78 sequences, 9 subjects, seed 1, commit 944b822):**
+**Values (AMASS validation, 330 sessions of 78 sequences, 9 subjects, seed 1, commit f85ec19):**
 
 | | hinge | 2-DoF | 3-DoF |
 |---|---|---|---|
 | fitted | s and σ_m | s only | s and σ_m |
-| s | 60.15 | 0.752 | 4.577 |
-| σ_m | 66.04° | 3° (assumption) | 20.85° |
-| largest window κ, s/σ_m² (its 1σ spread) | 45.2 (8.5°) | — | 34.6 (9.7°) |
-| coverage of the 68 % / 95 % intervals on validation | 0.715 / 0.945 | 0.702 / 0.949 | 0.728 / 0.949 |
+| s | 0.01178 | 0.557 | 3.728 |
+| σ_m | 0.94° | 3° (assumption) | 20.68° |
+| largest window κ, s/σ_m² (its 1σ spread) | 43.9 (8.6°) | — | 28.6 (10.7°) |
+| coverage of the 68 % / 95 % intervals on validation | 0.692 / 0.926 | 0.704 / 0.927 | 0.730 / 0.949 |
 
-q = 5.623·10⁻⁵ rad²/s (a joint's belief widens by about √(q·600 s) = 10.5° over 10 minutes without information);
-κ_hold = 89.13 (35.1 % of validation steps certain). The knee's cap (σ ≈ 8.5° per window) matches its windows' median
-error of 6.6° on AMASS (§12): the SMPL knee is not an exact hinge. Coverage over all joints: 0.715 / 0.948. H5's
-target (within ±5 points of 68 and 95) is a result to be measured on **test**, in RESULTS_STEP2.
+q = 5.623·10⁻⁵ rad²/s (a joint's belief widens by about √(q·600 s) = 10.5° over 10 minutes without information).
+κ_hold = 158.5: no threshold reached a retained P95 of 10° (the smallest was 10.16°, because the box prior's own
+error tail at 1 min sits near 10°), so the fallback rule applied; 32.5 % of validation steps are certain. A hinge
+scale s ≪ 1 says that a raw window κ overstates its information by orders of magnitude (neighbouring samples are
+not independent); the cap says no knee window is worth more than about ±8.6°. Coverage over all joints: 0.713 / 0.936.
+H5's target (within ±5 points of 68 and 95) is a result to be measured on **test**, in RESULTS_STEP2.
+
+GEO-K's own calibration (`fit-geometry calibration --estimator K`, same sessions and commit): hinge s = 0.01399,
+σ_m = 0.73° (cap 85.9, 6.2°); 2-DoF s = 0.003916, σ_m = 2.26° (cap 2.5: the 2-DoF constraint's raw κ is wildly
+optimistic); 3-DoF s = 3.496, σ_m = 11.29° (cap 90.1, 6.0°); validation coverage 0.734 / 0.948.
 
 ## 17. Step 2: DIODEM (owned by [mesqsim/diodem_geo.py](../mesqsim/diodem_geo.py))
 
@@ -434,9 +460,32 @@ target (within ±5 points of 68 and 95) is a result to be measured on **test**, 
   joint a range of motion for these chains, which has no training data).
 - **Reference.** A perfect registration at the start (δ held at its true first value): its error is the six-axis
   drift, −80.7° after 6.1 min on arm exp01's seg2 → seg3.
-- **Result (check 32.1, arm exp01, seg2 → seg3):** with the AMASS-fitted beliefs GEO-ID's median error is 15.0°
-  (P95 29.5°) against 80.7° for the start registration; with the assumed beliefs before the fit it was 7.8° (P95
-  24.5°). The knee calibration from AMASS (one window ≈ 8.5°) is pessimistic for DIODEM's near-perfect mechanical
+- **Result (check 32.1, arm exp01, seg2 → seg3):** with the AMASS-fitted beliefs GEO-ID's median error is 15.2°
+  (P95 29.6°) against 80.7° for the start registration; with the assumed beliefs before the fit it was 7.8° (P95
+  24.5°). The knee calibration from AMASS (one window ≈ 8.6°) is pessimistic for DIODEM's near-perfect mechanical
   hinge, so the filter follows the fast six-axis drift (about 30°/min at first) more slowly: a transfer effect,
   reported per experiment in [RESULTS_STEP2.md](RESULTS_STEP2.md). Mechanical chains: no claim about people.
+
+## 18. Step 2: the results' metrics and statistics (owned by [mesqsim/results_step2.py](../mesqsim/results_step2.py))
+
+- **Primary metric:** |wrap(δ̂ − δ)| per joint and motion-phase 32 Hz step, in degrees; mean, median, P95.
+  **Secondary:** the geodesic angle of the joint's error rotation with the true mountings (§7).
+- **Coverage:** the share of steps whose error lies inside the central von Mises interval of the reported κ,
+  h(κ, level) (§10), for 68 % and 95 %. A **reliability diagram** plots it against the nominal level.
+- **Selective risk:** sort the steps by κ, keep the top share f, report the median and P95 error of the kept steps;
+  a confidence that tracks accuracy makes the error fall as f shrinks.
+- **Strata.** Joint type and joint; minutes since boot (1, 10, 30: the dataset's motion starts); **excitation**,
+  computed by the scorer from the truth per session and joint — hinge and 2-DoF joints: the standard deviation of the
+  joint's main Cardan angle over the motion (how much it moved, which is what identification and the 2-DoF constraint
+  need); 3-DoF joints: the share of frames within 5° of an edge of Ω or outside it (what the range of motion needs) —
+  cut into terciles within each joint type; conditions (one-at-a-time sweeps); seconds since a reboot.
+- **The unit** is the held-out subject (subset, subject id). For a contrast, each subject contributes one number per
+  method: the median error over all its test sessions' steps and (session, joint) cells in the stratum. The paired
+  difference d_s = GEO-ID − B1 is resampled over subjects with replacement (10,000 resamples, fixed seed):
+  **95 % percentile interval** of the mean of d, and a two-sided bootstrap p = 2·min(P(mean* ≤ 0), P(mean* ≥ 0)).
+- **Holm** across C1–C3: sort the p-values, multiply the i-th smallest by (m − i + 1), make them non-decreasing.
+- **H2's contrasts** (analysis plan §8, at 10 min since boot; Δ = 1°, proposed): C1 hinge and C2 2-DoF in the upper two
+  excitation terciles ("walking and arm motion"; plan §9 option 1): supported if the interval lies below 0 and the
+  mean improvement exceeds Δ; C3 3-DoF over all motion ("everyday"): supported if the improvement's upper bound stays
+  below Δ. While the split and the plan are not frozen the verdicts are **descriptive**.
 

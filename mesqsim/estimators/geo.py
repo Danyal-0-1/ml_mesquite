@@ -142,14 +142,17 @@ class GeoParams:
         except KeyError:
             return default
 
-    def kappa_scale(self, jtype: str) -> float:
-        return float(self[f"kappa_scale.{jtype}"])
+    def kappa_scale(self, jtype: str, mode: str = "ID") -> float:
+        return float(self[f"kappa_scale{'_k' if mode == 'K' else ''}.{jtype}"])
 
-    def scales(self) -> dict:
-        return {t: self.kappa_scale(t) for t in JOINT_TYPES_ALL}
+    def scales(self, mode: str = "ID") -> dict:
+        """Window kappa scales per joint type: GEO-ID's (``kappa_scale``) or GEO-K's (``kappa_scale_k``); each is
+        fitted on validation with its own estimator, because their solvers differ (GEO-K: 2-DoF constraint)."""
+        return {t: self.kappa_scale(t, mode) for t in JOINT_TYPES_ALL}
 
-    def model_sigmas_rad(self) -> dict:
-        return {t: float(np.deg2rad(self[f"model_sigma_deg.{t}"])) for t in JOINT_TYPES_ALL}
+    def model_sigmas_rad(self, mode: str = "ID") -> dict:
+        key = "model_sigma_deg_k" if mode == "K" else "model_sigma_deg"
+        return {t: float(np.deg2rad(self[f"{key}.{t}"])) for t in JOINT_TYPES_ALL}
 
     def weight(self, use_filter: bool) -> float:
         return float(self["step_s"]) / float(self["window_s"]) if use_filter else 1.0
@@ -218,7 +221,8 @@ class GeoEstimator:
         t_init = self.phases["box"][1] if "box" in self.phases else self._t_geom_start()
         filt = JointFilter(N_JOINTS, float(self.p["drift_q_rad2_per_s"]))
         self._filt = filt  # the live belief: read once, at the end of the T-pose (box registration's delta)
-        scales, sigmas, weight = self.p.scales(), self.p.model_sigmas_rad(), self.p.weight(self.use_filter)
+        scales, sigmas = self.p.scales(self.mode), self.p.model_sigmas_rad(self.mode)
+        weight = self.p.weight(self.use_filter)
         log: list = []
         self.box_delta_rad = np.zeros(N_JOINTS)
         for t, kind, arg in self._events(t_init, tq):
@@ -229,6 +233,8 @@ class GeoEstimator:
             elif kind == 1:
                 filt.reset(t, arg)
                 log.append((t, 1, arg))
+            elif kind == 3:  # not a filter event: the T-pose snapshot, taken before any later reset
+                self.state["tpose"] = self._tpose_snapshot()
             else:
                 d_w, k_stat = self._window(t)
                 filt.update(t, d_w, calibrated_kappa(k_stat, scales, sigmas) * weight)
@@ -265,8 +271,14 @@ class GeoEstimator:
         return min(firsts) if firsts else 0.0
 
     def _events(self, t_init: float, tq: np.ndarray) -> list[tuple[float, int, object]]:
-        """Time-ordered (t, kind, arg): kind 0 init, 1 reset (arg: joints), 2 window."""
+        """Time-ordered (t, kind, arg): kind 0 init, 1 reset (arg: joints), 2 window, 3 the T-pose snapshot.
+
+        The snapshot is its own event at the end of the T-pose: a pod that reboots later (in the idle, say) must not
+        erase the T-pose's box belief, which ties the knee axes and gives every pod its T-pose frame (S2-M6 fix).
+        """
         events: list[tuple[float, int, object]] = [(t_init, 0, None)]
+        if "tpose" in self.phases and self.phases["tpose"][1] >= t_init:
+            events.append((float(self.phases["tpose"][1]), 3, None))
         for pod in range(N_PODS):
             for ep, t_first in self.starts[pod]:
                 if ep >= 1 and t_first > t_init:
@@ -369,7 +381,7 @@ class GeoEstimator:
 
     def _tpose_snapshot(self) -> dict:
         """q_i(T): mean of each pod's fresh T-pose samples of its epoch at the T-pose end (Step 0's snapshot, per
-        epoch), and the filter's belief at that moment (box registration plus any T-pose windows)."""
+        epoch), and the filter's belief at that moment (box registration, unless a pod rebooted before it)."""
         a, b = self.phases["tpose"]
         epochs = self._epochs_at(b)
         q = np.full((N_PODS, 4), np.nan)
@@ -495,8 +507,11 @@ class GeoEstimator:
         With a valid T-pose snapshot and box prior, the knee axis is tied to the T-pose (horizontal there, one line in
         both segments: :func:`identify_hinge_axes_tpose`, one unknown), then refined locally with all four angles and
         the refinement kept only if it stays within ``axis_tpose_tolerance_deg``. Without a T-pose (DIODEM), the free
-        four-angle fit. Either way the fit must stand out from the alternatives (contrast <= ``axis_contrast_max``):
-        when thigh and shin turn together, every axis fits and none is accepted.
+        four-angle fit. Either way the fit must stand out from the alternatives (its contrast at most
+        ``axis_tpose_contrast_max`` for the tied fit, ``axis_contrast_max`` for the free one): when thigh and shin turn
+        together, every axis fits and none is accepted. The tied fit has one unknown and the T-pose behind it, so it
+        may stand out less and still be right (AMASS validation, WORKLOG 2026-11-17); it must also show that a wrong
+        axis fits measurably badly (``spread`` at least ``axis_min_spread``), which a rigid motion never does.
         """
         jt = JOINTS[j]
         prev = self.state["axes"].get(j)
@@ -513,7 +528,8 @@ class GeoEstimator:
         tie = self._tpose_tie(j)
         if tie is not None:
             tied = identify_hinge_axes_tpose(wp, wc_at_p, *tie)
-            if tied.contrast > contrast_max:
+            if (tied.contrast > float(self.p["axis_tpose_contrast_max"])
+                    or tied.spread < float(self.p["axis_min_spread"])):  # fmt: skip
                 return prev
             ref = identify_hinge_axes(wp, wc_at_p, start=(tied.u_p, tied.u_c), n_starts=0)
             tol = np.deg2rad(float(self.p["axis_tpose_tolerance_deg"]))

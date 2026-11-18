@@ -81,8 +81,9 @@ def test_replay_reproduces_the_estimator_exactly(stress_session, variant):
     geo = GeoEstimator(CFG, truth, use_filter=variant != "nofilter")
     est, diag = geo.run(series, d.session, host, diagnostics=True)
     p = GeoParams(CFG)
-    mu, kap, defined = replay(diag.events, host, float(CFG["geometry.drift_q_rad2_per_s"]), p.scales(),
-                              p.model_sigmas_rad(), p.weight(variant != "nofilter"), variant != "nofilter")
+    mode = "K" if variant == "K" else "ID"
+    mu, kap, defined = replay(diag.events, host, float(CFG["geometry.drift_q_rad2_per_s"]), p.scales(mode),
+                              p.model_sigmas_rad(mode), p.weight(variant != "nofilter"), variant != "nofilter")
     after = defined & (host >= diag.events.t_init)
     assert np.array_equal(wrap_rad(mu[after]), est.delta_rad[after]) and np.array_equal(kap[after], est.kappa[after])
 
@@ -114,3 +115,37 @@ def test_geo_id_equals_b1_on_noise_free_motion_without_information():
     err_b1 = np.abs(wrap_rad(b1[mot] - grid.delta_rad[mot]))
     assert np.all(err_geo <= err_b1 + 1e-12)
     assert len(JOINTS) == err_geo.shape[1]
+
+
+def test_kappa_hold_meets_the_target_or_falls_back_to_the_smallest_tail():
+    """kappa_hold (S2-M6): the smallest threshold whose retained steps have P95 <= target; otherwise the threshold
+    with the smallest retained P95 that keeps at least 10 % of the steps."""
+    from mesqsim.geo_fit import fit_hold
+
+    rng = np.random.default_rng(3)
+    kappa = rng.uniform(0.0, 200.0, 20_000)
+    err = np.abs(rng.normal(0.0, 1.0, kappa.size)) / np.sqrt(np.maximum(kappa, 1.0))  # sharper with kappa
+    thr, kept, p95, rule = fit_hold(err, kappa, np.deg2rad(10.0))
+    assert rule == "target" and np.percentile(err[kappa >= thr], 95) <= np.deg2rad(10.0) and 0 < kept < 1
+    # a floor of 0.2 rad under every error: no threshold reaches 10 deg; the smallest retained tail is taken
+    thr, kept, p95, rule = fit_hold(err + 0.2, kappa, np.deg2rad(10.0))
+    assert rule == "smallest P95" and kept >= 0.10 and p95 > np.deg2rad(10.0)
+    assert p95 == pytest.approx(np.percentile((err + 0.2)[kappa >= thr], 95))
+
+
+def test_a_reboot_in_the_idle_keeps_the_tpose_frames():
+    """S2-M6 fix: the T-pose snapshot is taken at the end of the T-pose. A pod that reboots in the idle resets its
+    joints at the motion's first frame, but the T-pose's box belief (which ties the knee axes and gives every pod its
+    T-pose frame) survives, so the rebooted shin's ankle is still solved."""
+    cfg = CFG.with_overrides({"session.idle_s": 300.0})
+
+    def hook(plan):
+        plan.pods[10].reboots_s = [plan.phases["motion"][0] - 120.0]  # the left shin, in the idle
+
+    d = simulate_session(cfg, 11, MotionSource.from_spec("synthetic:walk:20"), plan_hook=hook)
+    series = step0.decode(d.frames, d.session)
+    host = ev.Grid(d.labels_joints).t_s + d.meta["plan"]["host_epoch_s"]
+    est, diag = GeoEstimator(CFG).run(series, d.session, host, diagnostics=True)
+    assert any(kind == 1 and 10 in joints for _, kind, joints in diag.events.events)  # the knee was reset
+    status = [w["status"] for w in diag.windows if w["joint"] == 12]  # l_ankle: parent pod 10
+    assert "ok" in status and diag.state["facing_rad"] is not None

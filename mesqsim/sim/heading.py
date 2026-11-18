@@ -10,8 +10,9 @@
 * w_i(t): angle random walk, Brownian with variance N_g² t.
 
 The trajectory is integrated on a dense 240 Hz grid. The idle interval (minutes, unrecorded) is one step of the
-grid: its turning is the net twist about the vertical between the poses before and after it, plus whole turns
-drawn from an assumed turning model; its random walk is one increment N(0, N_g² Δt). Between grid points Theta
+grid: its turning is the net twist about the vertical between the poses before and after it, plus the wearer's
+whole turns (``SessionPlan.idle_turns``, drawn once per session: every pod is on one body and turns with it); its
+random walk is one increment N(0, N_g² Δt). Between grid points Theta
 and w are interpolated linearly. While a pod is switched off between a reboot and its next boot, psi is NaN.
 """
 
@@ -113,8 +114,7 @@ def _dense_segments(plan: SessionPlan, t0: float, t_end: float) -> list[np.ndarr
 
 
 def build_pod_heading(plan: SessionPlan, motion: MotionSource, pod: int, epochs: list, drift_rad_per_s: float,
-                      scale_factor: float, arw_rad_per_sqrt_s: float, idle_turn_sigma_per_sqrt_min: float,
-                      rng: np.random.Generator) -> PodHeading:  # fmt: skip
+                      scale_factor: float, arw_rad_per_sqrt_s: float, rng: np.random.Generator) -> PodHeading:
     """Integrate Theta and the random walk for one pod from its first boot to the end of the session."""
     t_end = plan.phases["motion"][1]
     segs = _dense_segments(plan, epochs[0].boot_s, t_end)
@@ -123,11 +123,9 @@ def build_pod_heading(plan: SessionPlan, motion: MotionSource, pod: int, epochs:
     for k, ts in enumerate(segs):
         p = pod_orientation(plan, motion, pod, ts)
         inc = np.r_[0.0, np.cumsum(theta_increments_rad(p))]
-        if k > 0:  # the idle gap: net twist about the vertical plus whole turns of the wearer
+        if k > 0:  # the idle gap: net twist about the vertical plus the wearer's whole turns (same for every pod)
             jump = quat_mul(p[0], quat_conj(pod_orientation(plan, motion, pod, t_all[-1][-1:])[0]))
-            gap_min = (ts[0] - t_all[-1][-1]) / 60.0
-            turns = np.round(rng.normal(0.0, idle_turn_sigma_per_sqrt_min * np.sqrt(gap_min)))
-            theta_end += float(twist_z_rad(jump)) + 2.0 * np.pi * turns
+            theta_end += float(twist_z_rad(jump)) + 2.0 * np.pi * plan.idle_turns
         t_all.append(ts)
         theta_all.append(theta_end + inc)
         theta_end = theta_all[-1][-1]

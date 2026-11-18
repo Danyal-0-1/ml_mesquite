@@ -176,4 +176,6 @@ def test_tpose_tied_identification_recovers_the_axis_and_refuses_rigid_motion():
     _, w_c_rigid = body_rates(t, quat_mul(s_c_rigid, m_c), 0.1)
     m_rel_rigid = quat_to_matrix(quat_mul(quat_conj(m_c), m_p))
     rigid = identify_hinge_axes_tpose(w_p, w_c_rigid, g_p, m_rel_rigid)
-    assert rigid.contrast > 0.25
+    # every azimuth fits: the contrast is a ratio of two noise terms; the spread shows that nothing is identified
+    assert rigid.spread < 0.01 < 0.1  # geometry.axis_min_spread: refused
+    assert fit.spread > 0.1

@@ -807,3 +807,126 @@ checks and a one-hinge figure. One pull request for both (the DIODEM figure depe
 
 **Open questions.** Whether the calibration should differ for the real suit's knees (closer to SMPL's or to a
 mechanical hinge?) is for the bench data to answer.
+
+---
+
+## 2026-11-17 · S2-M6 (the Step 2 results) · branch `s2-m6` (from `main` = `88763e5`)
+
+**Previous entry's commits.** `1ab3c52` (S2-M4/M5 results, work log, README), `f8a1911` (WORKLOG hash fix), merged
+into `main` as `88763e5` (pull request #4), tags `step2-m4`, `step2-m5`.
+
+**Files changed.** `mesqsim/results_step2.py` (new: `session_worker`, `excitation`, `bootstrap_contrast`, `holm`,
+`coverage`, `selective_risk`), `scripts/make_results_step2.py` (new: the one command), `mesqsim/cli.py`
+(`fit-geometry calibration --estimator K`), `mesqsim/geo_fit.py` (GEO-K's calibration; `fit_hold`),
+`mesqsim/estimators/geo.py` (GEO-K's own calibration keys; the tied knee-axis test), `mesqsim/estimators/hinge.py`
+(`spread`), `mesqsim/sim/session.py`, `mesqsim/sim/heading.py`, `mesqsim/sim/simulate.py` (the wearer's idle turns),
+`mesqsim/validation.py` (check 33.1; helper signature), `configs/default.yaml` (new keys `kappa_scale_k.*`,
+`model_sigma_deg_k.*`, `axis_tpose_contrast_max`, `axis_min_spread`; every calibration value refitted), tests
+(`test_results_step2.py` new; `test_hinge.py`, `test_filter.py`, `test_sim_full.py` extended), docs (`MATH.md` §6,
+§16, the error-model table; `PIPELINE.md` §10; `CODE.md`), and the generated `docs/RESULTS_STEP2.md`,
+`docs/VALIDATION.md` and `docs/figures/results_step2_*.png`.
+
+**What was built.** `python scripts/make_results_step2.py --source amass --seed 1`: the dataset's 519 **test**
+sessions (117 sequences long enough for a 20 s window, 15 subjects; motion at 1, 10 and 30 min since boot; the
+dataset's own seeds), simulated, decoded and scored in memory in worker processes, for B0, B1, O1, O2, GEO-K, GEO-ID
+and four GEO-ID ablations; one-at-a-time sweeps at 10 min; the re-acquisition after reboots; GEO-ID on every DIODEM
+hinge with the fitted and the assumed beliefs. Tables 1–10 (and 3b), H2's contrasts C1–C3 with subject-level paired
+bootstraps (10,000 resamples, seed 20261117) and Holm's correction, coverage, selective risk and five figures. Check
+33.1: the same config and seed give the same file apart from its Run line.
+
+**Commands and results, in order.**
+- GEO-K's own calibration (`fit-geometry calibration --source amass --seed 1 --estimator K --write`, at `03d4a18`,
+  clean worktree): GEO-K had been using GEO-ID's window scales, and its 2-DoF windows (a different solver) came out
+  over-confident (P95 89° at 68 %/95 % coverage 0.25/0.45 on a trial). Its own keys fix it (values below).
+- **First full results run** at `f988391` (13.7 min on an Apple M2 Pro). Three findings, all investigated on
+  **validation** data before anything changed:
+  1. GEO-ID was almost B1: the T-pose-tied knee axes were accepted in only 44 % (left) and 47 % (right) of 78
+     validation sessions at 10 min, and without knee axes GEO-ID has no facing and runs no other solver. Yet the
+     tied fits with contrast 0.25–0.8 were as accurate as those below 0.25 (median thigh-axis error 6.9–8.1° and
+     5.2–8.9° by bin, left/right; 13–24° above 0.8). A threshold scan on 156 validation sessions (10 and 30 min),
+     mean session-median error, hinge / 2-DoF / 3-DoF: 0.25 → 7.62 / 7.61 / 8.21°; 0.6 → 6.89 / 7.13 / 7.45°;
+     0.7 → 6.55 / 7.08 / 7.34°; 0.8 → 6.50 / 7.05 / 7.31°; 0.9 → 6.52 / 7.01 / 7.26°; 1.0 → 6.51 / 7.00 / 7.26°
+     (B1 8.90 / 8.33 / 9.57°); the facing was found in 56 %, 82 %, 90 %, 91 %, 93 %, 93 % of sessions. Dropping the
+     local four-angle refinement changed little (0.8: 6.61 / 7.04 / 7.33°), so it stays. **Change:**
+     `geometry.axis_tpose_contrast_max` = 0.8 for the tied fit (the free fit keeps 0.25). The rigid-motion test then
+     showed the contrast of a rigid motion to be 0.79 — a ratio of two near-zero costs — so a second test was added:
+     `geometry.axis_min_spread` = 0.1 (the residual at the median azimuth relative to the rates: below 0.01 for rigid
+     motion, above 0.3 for every one of 408 validation knee fits).
+  2. C3's verdict read "GEO-ID better by more than the margin" when its interval only failed to exclude that: the
+     wording is now "an improvement above the margin is not excluded".
+  3. Table 9 showed GEO-ID never re-acquiring after reboots (≈ 90°). A first diagnosis (a forced reboot *during* the
+     motion of an identifiable clip re-acquired, ankle 29° → 6–7°) blamed finding 1. It was wrong: the same reboot in
+     the *idle* never re-acquired (the T-pose snapshot, below).
+- While writing PIPELINE_EXPLAINED, a **simulator bug**: the idle's whole turns, documented as the wearer's, were
+  drawn per pod. Pods on one body cannot make different whole turns; the per-pod draws added k·2π·(n_c − n_p) of
+  relative error (up to ≈ 10° for a two-turn difference at k ≈ 1.4 %). **Fixed** (`045b343`): one
+  draw per session in `plan_session` (own stream `idle_turns`), shared by all pods; test
+  `test_idle_whole_turns_belong_to_the_wearer_and_every_pod_shares_them`. The explanation session's left-knee B1 error
+  fell from 27.7° to 19.0°. `docs/RESULTS_STEP1.md` (tag `step1`) was made with the per-pod draws; regenerating it on
+  AMASS takes about 12 h and 100 GB of runs, so it stays as the `step1` record, and RESULTS_STEP2 (which has B0–O2 on
+  the test subjects with the fix) supersedes its idle-dependent numbers.
+- Calibrations refitted, each in the clean worktree at the named commit, validation only (330 sessions of 78
+  sequences, 9 subjects): at `fab6e3d` (tied threshold), superseded by the simulator fix; at `045b343`, where κ_hold
+  came out 10⁶ ("no step is ever certain": the best retained P95 was 10.25°, just above the 10° target, because the
+  box prior's own error tail at 1 min sits near 10°). **Change** (`f85ec19`): `fit_hold` keeps the rule, and when no
+  threshold reaches the target takes the one with the smallest retained P95 that keeps at least 10 % of the steps
+  (test `test_kappa_hold_meets_the_target_or_falls_back_to_the_smallest_tail`); the config source says which rule
+  applied. **Final values** (`f85ec19`, written with label `fitted`; committed as `317323c`):
+  - GEO-ID: hinge s = 0.011776, σ_m = 0.9385° (cap 43.9, ≈ 8.6° per window; 9,536 informative knee windows, was
+    3,821); 2-DoF s = 0.556852 (σ_m 3° kept); 3-DoF s = 3.728253, σ_m = 20.68°; q = 5.623e-5 rad²/s;
+    κ_hold = 158.49 (fallback rule, retained P95 10.16°, 32.5 % of steps certain). Validation coverage 68 % / 95 %:
+    hinge 0.692 / 0.926, 2-DoF 0.704 / 0.927, 3-DoF 0.730 / 0.949, all 0.713 / 0.936.
+  - GEO-K: hinge s = 0.013994, σ_m = 0.7313°; 2-DoF s = 0.003916, σ_m = 2.2575°; 3-DoF s = 3.496256,
+    σ_m = 11.2873° (unchanged by the fix: windows never see the idle). Coverage 0.734 / 0.948.
+- **The reason for finding 3, an estimator bug:** the T-pose snapshot (q_i(T) and the box belief, which tie the knee axes and give
+  every pod its T-pose frame) was taken at the first geometry window, i.e. after the idle. A pod that rebooted in the
+  idle had its joints reset at the motion's first frame, before the snapshot, so it lost the tie and its T-pose frame
+  (and its descendants theirs) for good. **Fixed** (`d6c0487`): the snapshot is an event of its own at the end of the
+  T-pose; test `test_a_reboot_in_the_idle_keeps_the_tpose_frames` (fails before the fix). Sessions without such a
+  reboot get the same snapshot, so the calibration and every table without reboots are unchanged (confirmed below).
+- `bash scripts/check_all.sh` at `317323c` (clean worktree), 3 min 46 s: ruff clean; pytest 219 passed; validation
+  52 of 52. **At `d6c0487`** (clean worktree), 2026-11-18 05:10 UTC, 3 min 47 s: ruff clean; pytest **220 passed**;
+  validation **52 passed, 0 failed, 0 skipped of 52**. Step 2 checks: 21.1–21.3 identical bytes; 22.1 GEO-K knee
+  windows max 0.0144°; 23.1 spread ratio 0.989; 24.1 axes within 0.001° noise-free, 0.56° on a walk; 26.1 0.369° /
+  κ 1.97 / 0; 27.1 exact; 28.1 common yaw 0.127°, one pod 0.0043°; 29.1 GEO-K 6.35° / 5.47° against B1 21.30° /
+  18.21°; 30.1 hinge 0.833 / 1.000, 2-DoF 0.721 / 0.843, 3-DoF 0.716 / 0.981 (12 synthetic sessions); 31.1 P50 2.91
+  ms, P95 7.79 ms, max 12.73 ms; 32.1 GEO-ID 15.18° against 80.71°; 33.1 identical apart from the Run line.
+- **The results:** `python scripts/make_results_step2.py --source amass --seed 1` at `d6c0487` (clean
+  worktree), 18.5 min of compute (the Mac slept through most of its 8 h wall time; apart from the Run line the file
+  differs from the `317323c` run only in the reboot rows, as the snapshot fix predicts). 519 test sessions. All 14
+  joints, mean error at 1 / 10 / 30 min since boot: B1 3.90 / 7.08 / 11.91°; GEO-ID 3.95 / 6.69 / 9.96°; GEO-K
+  (truth) 3.75 / 6.30 / 9.08°; O1 (truth) 3.17 / 6.67 / 11.65°. At 30 min by joint type: hinge B1 12.15° → GEO-ID
+  9.25° (GEO-K 6.37°); 2-DoF 11.76° → 9.75° (10.84°); 3-DoF 11.97° → 10.41° (8.23°). GEO-ID found the facing in 358
+  of 519 sessions (69 %; with the knee axes in 92–93 % of those); in the other 161 it equals B1 by construction.
+  **H2** at 10 min (GEO-ID − B1 per subject, 95 % bootstrap interval, Holm): C1 hinge −0.98° [−2.02, −0.07], p 0.03
+  (0.09); C2 2-DoF −0.78° [−1.79, 0.04], p 0.06 (0.13); C3 3-DoF −0.08° [−0.66, 0.44], p 0.81 (0.81). By the draft
+  plan C1 and C2 are "not shown better" (C1's mean gain sits just under the 1° margin) and C3 "supports H2";
+  descriptive. Coverage of the 68 % / 95 % intervals on test: GEO-ID 0.71 / 0.94 at every joint type; GEO-K's knees
+  0.58 / 0.89. Sweeps (mean at 10 min): GEO-ID below B1 in every condition (drift 2.0 °/min 19.49° against 23.74°;
+  one reboot per pod per hour 17.62° against 29.10°). Re-acquisition after a reboot (median of the rebooted pod's
+  joints): GEO-ID 78.19° at 2–5 s, 12.65° at 5–10 s, 9.37° at 10–20 s (GEO-K 10.81°, 8.50°, 7.83°; B1 about 88°).
+  DIODEM: GEO-ID's median error below the start registration's in 21 of 27 hinge runs; arm exp01 seg2–seg3 15.18°
+  (P95 29.63°) against 80.71°, and 7.79° with the beliefs assumed before the AMASS fit.
+
+**Decisions.**
+- Both estimator changes (the tied knee-axis threshold with its spread test, and the κ_hold fallback) were chosen on
+  **validation** data only. The first came from a look at one test-split clip while preparing the explanation (its
+  identified knee axis was 12° off); it was then measured, and decided, on validation sessions alone. The analysis
+  plan is not frozen, so the results stay descriptive either way.
+- The simulator fix changes every session with an idle; Step 1's results file is kept as the `step1` record (above).
+- GEO-K keeps its own calibration keys: its solvers differ from GEO-ID's.
+
+**Open questions.**
+- **Correlated window errors.** Range-of-motion windows (and identified-knee windows) carry errors that persist over
+  many consecutive windows, while the filter treats windows as independent beyond the 1/8 overlap weight. Over many
+  sessions the calibration absorbs this (coverage 0.71 / 0.94 on test), but within one session GEO-ID can make a
+  joint whose box registration happened to be good worse (PIPELINE_EXPLAINED's session: the hips). A per-session
+  bias term, or a calibration that models the windows' correlation, is a question for Step 4's fusion as much as for
+  Step 2.
+- **Identification in short motion.** The test sessions have 20 s of motion; the knee axes were refused in 31 % of
+  them. Longer windows (`dataset.window_s`) or concatenated sequences would test whether more motion helps.
+- **GEO-K's 2-DoF constraint** does worse than GEO-ID's range of motion at the 2-DoF joints (its raw κ needs a scale
+  of 0.0039): fixed axes at 90° fit the SMPL elbows, wrists and ankles poorly.
+- **Transfer to real hinges:** the AMASS knee calibration is pessimistic for DIODEM's mechanical hinges (the assumed
+  beliefs did better there); the bench must say which the real suit's knees resemble.
+- Whether `docs/RESULTS_STEP1.md` should be regenerated with the shared idle turns (about 12 h, 100 GB).

@@ -135,3 +135,27 @@ def test_two_reboots_in_the_unrecorded_idle_look_like_one():
     assert (m["_merge"] == "both").all()
     pod1 = d.labels_ticks[d.labels_ticks["pod_id"] == 1]
     assert pod1["epoch"].max() == 1 and pod1["boot_epoch"].max() == 2
+
+
+def test_idle_whole_turns_belong_to_the_wearer_and_every_pod_shares_them():
+    """The idle's whole turns are the wearer's (MATH.md §3): drawn once per session, the same for all 15 pods."""
+    from mesqsim.sim.heading import IDLE_MARGIN_S, build_pod_heading
+    from mesqsim.sim.rng import stream
+    from mesqsim.sim.session import plan_session
+    from mesqsim.sim.simulate import pod_epochs
+    from mesqsim.sim.truth import pod_orientation
+
+    cfg = CFG.with_overrides({"session.idle_s": 1500.0})
+    motion = MotionSource.from_spec("synthetic:walk:10")
+    turns = np.array([plan_session(cfg, s, motion).idle_turns for s in range(400)])
+    assert np.std(turns) == pytest.approx(0.5 * np.sqrt(25.0), rel=0.15)  # round(N(0, (0.5·√min)²))
+    seed = int(np.flatnonzero(turns != 0)[0])
+    plan = plan_session(cfg, seed, motion)
+    t0, t1 = plan.phases["tpose"][1] + IDLE_MARGIN_S, plan.phases["motion"][0] - IDLE_MARGIN_S
+    r_ep, r_walk = stream(seed, "epochs"), stream(seed, "walk")
+    for p in plan.pods:
+        hd = build_pod_heading(plan, motion, p.pod_id, pod_epochs(cfg, plan, motion, p, r_ep), 0.0, 0.0, 0.0, r_walk)
+        jump = float(np.diff(hd.theta_at(np.array([t0, t1])))[0])
+        q0, q1 = pod_orientation(plan, motion, p.pod_id, np.array([t0, t1]))
+        whole = (jump - float(twist_z_rad(quat_mul(q1, quat_conj(q0))))) / (2.0 * np.pi)
+        assert whole == pytest.approx(plan.idle_turns, abs=1e-9)
