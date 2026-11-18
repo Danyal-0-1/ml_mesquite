@@ -2,8 +2,10 @@
 
 Research repository for Danyal Khorami's Mesquite project. It is public by Danyal's choice (2026-11-12); licensed
 data never enter it. The specifications are [docs/brief/STEP1_BRIEF.md](docs/brief/STEP1_BRIEF.md) (done) and
-[docs/brief/STEP2_BRIEF.md](docs/brief/STEP2_BRIEF.md) (in progress); the rules for every work session are in
-[CLAUDE.md](CLAUDE.md). **New here? Read [docs/MUST_KNOW.md](docs/MUST_KNOW.md) first.**
+[docs/brief/STEP2_BRIEF.md](docs/brief/STEP2_BRIEF.md) (done, tag `step2`); the rules for every work session are in
+[CLAUDE.md](CLAUDE.md). **New here? Read [docs/MUST_KNOW.md](docs/MUST_KNOW.md) first, then learn the project from
+[docs/explain/README.md](docs/explain/README.md)** (five files, from a mental picture to the theory). The two
+datasets are explained in [project_explanations/DATASETS.md](project_explanations/DATASETS.md).
 
 ## The whole project in one picture
 
@@ -18,12 +20,12 @@ number (`count`) and the pod-clock time its picture was taken (`ms_lo`). A hub p
 which turns each pod into a bone of an avatar.
 
 **The problem.** The norths disagree, so a joint computed from two pods shows a false twist about the vertical:
-the thigh twists against the shin when the knee only bent. Step 2 will estimate, for each of the 14 joints, how
+the thigh twists against the shin when the knee only bent. Step 2 estimates, for each of the 14 joints, how
 far the child pod's north has slid relative to its parent's: the **relative heading δ**. Only relative headings
 can ever be estimated. Turn the whole room about the vertical and every pod sends the same numbers, so north
 and the body's facing in the room are unknowable.
 
-**Step 1 (this repository) builds the ground Step 2 stands on:**
+**Step 1 builds the ground Step 2 stands on:**
 
 1. Take real human motion from AMASS and compute how each of the 15 body segments was oriented at every instant.
 2. Put virtual pods on the segments. Give each one its own sliding north, its own clocks and its own radio
@@ -48,10 +50,27 @@ STEP 0, shared with real recordings: unwrap ms_lo; fresh, held or lost; norm che
 DIODEM: download → load → drop the magnetometer → six-axis VQF → relative heading against optical truth
 ```
 
+**Step 2 adds the geometry.** The body itself constrains δ: a knee is a hinge, so the thigh pod and the shin pod
+see the same hinge pin, and the difference between the pin's two shadows on the floor is δ; an elbow, wrist or
+ankle has two such pins; a hip or shoulder only has walls (its range of motion), which say something only when the
+motion reaches them. Per joint, every second, the estimator solves the last 8 s of motion and multiplies the answer
+into a von Mises belief (a mean and a confidence κ) that fades with time and restarts at a reboot. **GEO-K** knows
+the true pins and straps (simulator truth: a ceiling); **GEO-ID** finds them from the motion and the T-pose (the
+deployable estimator). Both are scored against B1 on held-out AMASS subjects, and GEO-ID on DIODEM's real IMUs
+([docs/RESULTS_STEP2.md](docs/RESULTS_STEP2.md)).
+
+```text
+STEP 0 series + session.json ──► one clock for parent and child (lower envelope), pairs, body rates
+   ──► every 1 s, over the last 8 s, per joint type: hinge closed form (knees) │ 2-DoF constraint (GEO-K) │
+       range of motion in T-pose frames (GEO-ID's other joints)  ──►  (δ̂_w, κ_w), calibrated on validation
+   ──► von Mises filter per joint: start at B1, widen with time, multiply in each window, reset at a reboot
+   ──► δ̂, κ and an "uncertain" flag at every 32 Hz step ──► scored like the baselines (subject = unit)
+```
+
 **What goes in:** AMASS motion files and the SMPL+H body model (licensed; you download them by hand), the DIODEM
 dataset (open; scripted download) and one YAML config. **What comes out:** for each simulated session, a frames
-table identical in schema to a real recording, a separate labels table, the decoded per-pod series, and error
-tables and figures for the four baselines.
+table identical in schema to a real recording, a separate labels table, the decoded per-pod series, error tables
+for the baselines and the Step 2 estimators, and the two results documents.
 
 ## Status
 
@@ -67,13 +86,15 @@ tables and figures for the four baselines.
 | S2-M1 | Step 2 estimator contract, common clock, pairs, rates, `geometry:` config, scorer integration | done on branch `s2-m1`; merged into `main` (pull request #2), tag `step2-m1` |
 | S2-M2, S2-M3 | hinge (GEO-K, axis identification, GEO-ID); 2-DoF constraint; range of motion with Ω fitted on AMASS train; GEO-ID facing from the knees | done on branch `s2-m2`; merged into `main` (one pull request for both), tags `step2-m2`, `step2-m3` |
 | S2-M4, S2-M5 | filter replay and the validation calibration (κ scale, model error, q, κ_hold); T-pose-tied knee identification; GEO-ID on DIODEM | done on branch `s2-m4`; merged into `main` (one pull request), tags `step2-m4`, `step2-m5` |
-| S2-M6…M8 | the Step 2 results, the explanation pipeline, the report | in progress ([Step 2 brief](docs/brief/STEP2_BRIEF.md) §7) |
+| S2-M6 | the Step 2 results on AMASS test subjects and DIODEM ([docs/RESULTS_STEP2.md](docs/RESULTS_STEP2.md)); GEO-ID's tied knee-axis test relaxed and the calibration refitted on validation; the simulator's idle turns made the wearer's (shared by every pod) | done on branch `s2-m6`; merged into `main`, tag `step2-m6` |
+| S2-M7 | the explanation pipeline ([docs/explain/](docs/explain/README.md)) with its two tests | done on branch `s2-m7`; merged into `main`, tag `step2-m7` |
+| S2-M8 | documentation complete, the report (last [WORKLOG.md](WORKLOG.md) entry) | done on branch `s2-m8`; merged into `main`, **tag `step2`** |
 
 **Tags.** `step1` marks the end of Step 1 (simulator, Step 0, baselines). Each Step 2 milestone is merged into
-`main` and tagged `step2-m1`, `step2-m2`, …; `step2` will mark the end of Step 2. `git log --oneline step1..main` lists
-the Step 2 work.
+`main` and tagged `step2-m1` … `step2-m7`; `step2` marks the end of Step 2. `git log --oneline step1..step2` lists the
+Step 2 work.
 
-## Quickstart: from a fresh clone to the Step 1 results
+## Quickstart: from a fresh clone to the Step 1 and Step 2 results
 
 Commands are for bash (on Windows, Git Bash). Each step says what it produces and how long it took on the
 collaborator's machine where that was measured.
@@ -100,7 +121,7 @@ python scripts/verify_amass.py        # hashes, extracts, indexes -> manifests/a
 
 # 4. Check the environment, then run the full check (ruff, tests, validation -> docs/VALIDATION.md)
 python scripts/check_env.py
-bash scripts/check_all.sh             # 5 min 19 s on 2026-11-13 (12 logical cores)
+bash scripts/check_all.sh             # 5 min 19 s on 2026-11-13 (12 logical cores); 3 min 46 s on an M2 Pro, 2026-11-17
 python scripts/make_figures.py        # regenerates docs/figures
 
 # 5. Simulate one session and score it (docs/SIMULATOR.md)
@@ -109,22 +130,37 @@ python -m mesqsim baselines --run "$MESQ_OUTPUT_DIR"/run_g*_s1
 
 # 6. The results: the split (once, after AMASS; Danyal freezes it), then every table and figure
 python -m mesqsim split --write       # -> manifests/split_manifest.csv and its SHA-256
-python scripts/make_results.py        # -> docs/RESULTS_STEP1.md
+python scripts/make_results.py        # -> docs/RESULTS_STEP1.md (Step 1 baselines; about 12 h on AMASS)
+
+# 7. Step 2: the estimator's fitted beliefs (train / validation only; already in configs/default.yaml), then the
+#    results. Run in a clean checkout: the commit is written into the results.
+python -m mesqsim fit-geometry rom --source amass --write                  # Ω on train
+python -m mesqsim fit-geometry calibration --source amass --seed 1 --write # GEO-ID on validation (about 3 min)
+python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write   # GEO-K's own
+python scripts/make_results_step2.py --source amass --seed 1                # -> docs/RESULTS_STEP2.md (about 20 min)
+
+# 8. One session through GEO-K and GEO-ID (docs/explain/PIPELINE_EXPLAINED.md follows this one, stage by stage)
+python -m mesqsim simulate --seed 1 --motion "$MESQ_DATA_DIR/amass/CMU/13/13_02_poses.npz" --set session.idle_s=562
+python -m mesqsim baselines --run <printed folder> --methods B0 B1 O1 O2 GEO-K GEO-ID
 ```
 
 **Where to read next:** [docs/MUST_KNOW.md](docs/MUST_KNOW.md) (what to understand before trusting a number),
+[docs/explain/README.md](docs/explain/README.md) (the explanation pipeline: start here to learn the project),
 [docs/PIPELINE.md](docs/PIPELINE.md) (every stage and file format), [docs/MATH.md](docs/MATH.md),
-[docs/analysis_plan_DRAFT.md](docs/analysis_plan_DRAFT.md) (what will be tested, and how; for Danyal to freeze).
+[docs/RESULTS_STEP2.md](docs/RESULTS_STEP2.md), [docs/analysis_plan_DRAFT.md](docs/analysis_plan_DRAFT.md) (what
+will be tested, and how; for Danyal to freeze).
 
 ## Where things are
 
 | path | what |
 |---|---|
-| [mesqsim/](mesqsim/) | the Python package: conventions, codec, body tree, correction, data loaders, synthetic motion, figures, validation checks |
+| [mesqsim/](mesqsim/) | the Python package: conventions, codec, body tree, correction, data loaders, simulator (`sim/`), Step 0, baselines, the Step 2 estimators (`estimators/`), fits, results, validation checks |
 | [tests/](tests/) | pytest suite; runs without licensed data |
-| [scripts/](scripts/) | `check_env.py`, `check_all.sh`, `validate.py`, `download_diodem.py`, `verify_amass.py`, `make_figures.py` |
+| [scripts/](scripts/) | `check_env.py`, `check_all.sh`, `validate.py`, `download_diodem.py`, `verify_amass.py`, `make_figures.py`, `make_results.py`, `make_results_step2.py` |
 | [manifests/](manifests/) | name, size and SHA-256 of every data file |
-| [docs/](docs/) | MUST_KNOW, PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1, analysis_plan_DRAFT, figures; `brief/` holds both briefs |
+| [docs/](docs/) | MUST_KNOW, PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1, RESULTS_STEP2, analysis_plan_DRAFT, figures; `brief/` holds both briefs |
+| [docs/explain/](docs/explain/README.md) | the explanation pipeline: MENTAL_PICTURE → PIPELINE_EXPLAINED → MATH_EXPLAINED → CODE_EXPLAINED → THEORY |
+| [project_explanations/](project_explanations/DATASETS.md) | the two datasets (AMASS, DIODEM): what they are, how they were recorded, why they matter here |
 | [configs/](configs/) | `default.yaml` (every parameter, labelled), `presets.yaml` |
 | [WORKLOG.md](WORKLOG.md) | one entry per session or milestone: what changed, commands run, decisions |
 | `data/`, `outputs/` | git-ignored; licensed data and generated runs never enter git |

@@ -978,3 +978,141 @@ away from the code it names).
 **Decisions.** The worked session is a test-split clip (`CMU/13/13_02`): nothing is fitted on it, and it is the
 split the results describe. It was chosen for its knee motion, and because it shows GEO-ID's successes (the right
 knee, the lower back, the right ankle) and failures (a left-knee axis 24.5° off; the hips) side by side.
+
+---
+
+## 2026-11-18 · S2-M8 (documentation complete) and the Step 2 report · branch `s2-m8` (from `main` = `a8642d0`)
+
+**Previous entry's commits.** S2-M7: `822a171`, `1f461f1`, merged into `main` as `a8642d0` (pull request #6), tag
+`step2-m7`.
+
+**Files changed.** `README.md` (the picture with Step 2, status, the quickstart to the Step 2 results, links to
+`docs/explain/` and `project_explanations/`), `docs/MUST_KNOW.md` (§10: the Step 2 section and ten self-check
+questions), `docs/SIMULATOR.md` (the drift stress value 2.0 °/min; the wearer's idle turns; the `idle_turns`
+stream), `project_explanations/DATASETS.md` (new, Danyal's request: AMASS and DIODEM, what they are, how they were
+recorded and on what hardware, what matters about them here; facts cited to the papers and to our own inspection
+commands), `WORKLOG.md` (this report), `docs/VALIDATION.md` (regenerated).
+
+### The Step 2 report (brief §11)
+
+**1. What was built** (Step 2, S2-M1 … S2-M8):
+- estimators: `mesqsim/estimators/{contract,clock,anatomy,hinge,twodof,rom,vmfilter,geo}.py`;
+- scorer side: `mesqsim/{evaluate,geo_score,geo_sessions,geo_fit,results_step2,diodem_geo}.py`, `mesqsim/cli.py`
+  (`baselines --methods`, `params --label fitted`, `fit-geometry rom|calibration [--estimator ID|K]`),
+  `mesqsim/config.py` (sections, in-place writes), `mesqsim/conventions.py` (Cardan angles, von Mises helpers),
+  `mesqsim/validation.py` (checks 21.1–33.1), `mesqsim/figures.py`;
+- simulator fix: `mesqsim/sim/{session,heading,simulate}.py` (the wearer's idle turns);
+- scripts: `scripts/make_results_step2.py`;
+- config: `configs/default.yaml` (`geometry:`: 25 assumption and 25 fitted values);
+- tests: `tests/test_{conventions_step2,clock,geo_contract,hinge,twodof_rom,config_write,filter,results_step2,
+  explain_examples,explain_links}.py`, and additions to `test_sim_full.py`;
+- docs: `docs/RESULTS_STEP2.md` and its figures (generated), `docs/VALIDATION.md` (generated), `docs/MATH.md` §9–§18,
+  `docs/PIPELINE.md` §7–§10, `docs/CODE.md`, `docs/MUST_KNOW.md` §10, `docs/SIMULATOR.md`, `README.md`, the six files
+  of `docs/explain/`, `project_explanations/DATASETS.md`, this work log.
+
+**2. `bash scripts/check_all.sh`** at `e05570c` (clean worktree; the documentation commit of this milestone), 2026-11-18 17:07 UTC, 3 min 56 s:
+
+```text
+== environment
+Python 3.11.16
+== ruff
+All checks passed!
+== pytest
+266 passed in 115.30s (0:01:55)
+== validation
+wrote docs/VALIDATION.md
+VALIDATION: PASS
+== ALL CHECKS PASSED
+```
+
+Validation: **52 passed, 0 failed, 0 skipped of 52** (`docs/VALIDATION.md`, commit `e05570c`).
+
+**3. The Step 2 results** (`python scripts/make_results_step2.py --source amass --seed 1` at `d6c0487`; AMASS test
+subjects; parameter set: offsets arbitrary, box slot 2°, drift 0.2 °/min, scale factor ±1.5 % (datasheet), tilt
+0.5°, no reboots, loss 2 %, the fitted geometry beliefs above; banner: assumed suit, descriptive). Mean error over
+all 14 joints, degrees (`*` = uses simulator truth):
+
+| method | 1 min | 10 min | 30 min |
+|---|---|---|---|
+| B1 | 3.90 | 7.08 | 11.91 |
+| O1 * | 3.17 | 6.67 | 11.65 |
+| GEO-K * | 3.75 | 6.30 | 9.08 |
+| GEO-ID | 3.95 | 6.69 | 9.96 |
+
+By joint type at 30 min (mean / P95): hinge B1 12.15 / 35.84, GEO-ID 9.25 / 27.53, GEO-K 6.37 / 14.76; 2-DoF
+11.76 / 32.20, 9.75 / 27.68, 10.84 / 29.81; 3-DoF 11.97 / 33.89, 10.41 / 28.94, 8.23 / 24.12. GEO-ID's facing (hence
+its non-knee solvers) was found in 358 of 519 sessions (69 %); in the other 161 it equals B1 by construction.
+Coverage of GEO-ID's 68 % / 95 % intervals on test: 0.71 / 0.94 at every joint type (H5's ±5-point target met);
+GEO-K's knees under-cover (0.58 / 0.89). DIODEM: GEO-ID's median error below the start registration's on 21 of 27
+hinge runs; arm exp01 seg2–seg3 15.18° against 80.71°. With one reboot per pod per hour GEO-ID's mean error is 17.62° against B1's 29.10°, and after a reboot it re-acquires the rebooted pod's joints within 5–10 s (median 12.65°, then 9.37° at 10–20 s; GEO-K 8.50° and 7.83°).
+
+**4. H2** (at 10 min, GEO-ID − B1 per subject, 10,000 bootstrap resamples, Holm across C1–C3, margin 1°,
+**descriptive** because the plan is not frozen):
+- **Hinge (C1):** −0.98° [−2.02, −0.07], p = 0.03 (Holm 0.09). GEO-ID is better than B1 at the knees, but the mean
+  gain sits just under the proposed 1° margin, so by the draft plan's two-part definition it is "not shown better".
+- **2-DoF (C2):** −0.78° [−1.79, 0.04], p = 0.06 (Holm 0.13): probably better, not shown.
+- **3-DoF (C3):** −0.08° [−0.66, 0.44], p = 0.81: an improvement above the margin is excluded, as H2 predicts.
+- **How firm:** the direction is the one H2 predicts at every joint type, and the gains grow with time since boot
+  (at 30 min the hinge mean falls from 12.15° to 9.25°); but nothing is confirmatory, the suit's error model is
+  assumed, and the knee identification (69 % of sessions) limits GEO-ID: GEO-K, with perfect axes, shows the
+  ceiling (hinge 6.37° at 30 min).
+
+**5. Every assumption still in the config** (63; `python -m mesqsim params --label assumption`):
+  - `motion`: `spine_joint` 9.
+  - `session`: `boot_spread_s` 0.5; `box_s` 5.0; `strapping_s` 30.0; `strap_move_s` [2.0, 6.0]; `strap_spins_max` 1; `tpose_s` 3.0; `idle_s` 0.0; `tpose_posture_deg` 5.0; `facing_error_deg` 15.0; `mounting_max_deg` 20.0.
+  - `timing`: `chip_start_s` [0.2, 0.5]; `decode_delay_ms` [0.0, 11.0]; `grid_start_ms` 1000.0; `stall_ms` 0.0; `stall_period_s` 3.0; `stall_jitter_s` 0.5; `decode_busy_ms` 1.0; `pod_clock_ppm` 50.0; `host_epoch_s` [100.0, 1000.0].
+  - `radio`: `loss_mean` 0.02; `burst_mean_frames` 3.0; `latency_min_ms` 2.0; `latency_jitter_ms` 3.0.
+  - `error_model`: `offset_mode` arbitrary; `box_slot_deg` 2.0; `drift_sigma_deg_per_min` 0.2; `tilt_sigma_deg` 0.5; `tilt_tau_s` 1.0; `reboot_rate_per_h` 0.0; `reboot_silence_s` 3.0; `idle_turns_sigma_per_sqrt_min` 0.5.
+  - `battery`: `start_pct` [70.0, 100.0]; `drain_pct_per_h` 10.0.
+  - `dataset`: `window_s` 20.0; `windows_per_sequence` 3; `motion_start_min` [1, 10, 30]; `variants` 1.
+  - `geometry`: `window_s` 8.0; `step_s` 1.0; `max_pair_gap_s` 0.1; `clock_window_s` 30.0; `clock_block_s` 2.0; `box_sigma_deg` 2.0; `hold_target_p95_deg` 10.0; `model_sigma_deg.2dof` 3.0; `hinge_sigma_floor_deg` 0.5; `axis_span_s` 120.0; `axis_min_rate_deg_s` 20.0; `axis_min_pairs` 64; `axis_max_residual` 0.5; `axis_contrast_max` 0.25; `axis_tpose_contrast_max` 0.8; `axis_min_spread` 0.1; `axis_tpose_tolerance_deg` 15.0; `axis_starts` 8; `sign_min_elev_deg` 5.0; `tpose_sign_margin_deg` 60.0; `facing_flex_min_deg` 20.0; `twodof_sigma_floor_deg` 0.5; `twodof_ambiguity_llr` 3.0; `rom_sigma_deg` 5.0; `rom_percentiles` [0.5, 99.5].
+
+**Every fitted value and its command** (25; validation or train only):
+- `python -m mesqsim fit-geometry rom --source amass --write` (train): `geometry.rom_limits_deg.*` for the 12 non-knee
+  joints (lower back, neck, shoulders, elbows, wrists, hips, ankles).
+- `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator ID --write` (validation, at
+  `f85ec19`): `geometry.kappa_scale.{hinge 0.011776, 2dof 0.556852, 3dof 3.728253}`,
+  `geometry.model_sigma_deg.{hinge 0.9385, 3dof 20.6758}`, `geometry.drift_q_rad2_per_s` 5.623e-05,
+  `geometry.kappa_hold` 158.4893.
+- `python -m mesqsim fit-geometry calibration --source amass --seed 1 --estimator K --write` (validation, at
+  `f85ec19`): `geometry.kappa_scale_k.{hinge 0.013994, 2dof 0.003916, 3dof 3.496256}`,
+  `geometry.model_sigma_deg_k.{hinge 0.7313, 2dof 2.2575, 3dof 11.2873}`.
+
+**6. What is blocked, and on whom.**
+- **AMASS:** not blocked (downloaded and verified 2026-11-13; the four subsets above).
+- **The plan freeze (Danyal):** the split manifest (SHA-256 `d36448ad…`) and `docs/analysis_plan_DRAFT.md`, including
+  the 1° margin. Until then every Step 2 comparison is descriptive.
+- **The bench measurements (Danyal):** every `assumption` of the error model (drift, scale factor, slot error, tilt,
+  loss, stalls, reboots, idle turning) waits for the 70-minute box evening and the taped-board session; after them the
+  calibration must be refitted (`fit-geometry calibration`, both estimators) and the results regenerated.
+- **Real recordings:** none exists in the frames-table format yet.
+
+**7. What Danyal must decide.**
+- Freeze the analysis plan and the split (and the margin Δ = 1°).
+- Pushing the estimator code (rule 3): **decided** — public repository (2026-11-16).
+- Switching to the DIODEM-only project if AMASS were missing: **not needed** (AMASS is here).
+- The Spine joint: spine3 (default) or spine2.
+- New in Step 2: whether Step 1's `docs/RESULTS_STEP1.md` should be regenerated with the fixed idle turns (about 12 h
+  and 100 GB of runs on AMASS); whether the knee identification thresholds and the κ_hold fallback, chosen on
+  validation, should be frozen in the plan.
+
+**8. Where the explanations are:** `docs/explain/` — README.md (the index), MENTAL_PICTURE.md, PIPELINE_EXPLAINED.md,
+MATH_EXPLAINED.md, CODE_EXPLAINED.md, THEORY.md — and `project_explanations/DATASETS.md` for the two datasets.
+
+**9. A proposed plan for Step 3, the learned estimators (not started).**
+- **Contract:** the same `estimate(series, session, t_query, cfg) -> Estimate(δ̂, κ, uncertain)`, causal, label-blind,
+  deterministic at inference; the same scorer, strata and subject-level statistics, so geometry and learning are
+  compared on identical sessions.
+- **Inputs:** gauge-invariant features only (a common yaw of the room must change nothing): per pod, gravity in its
+  own frame and body rates; per joint, the parent-to-child relative rotation q_p⁻¹·q_c; whole-body models see every pod
+  relative to the pelvis pod. Trained on simulated **train** sessions, early-stopped and calibrated on **validation**.
+- **Outputs:** per joint a von Mises (μ as a unit vector (cos μ, sin μ), κ ≥ 0 through a softplus), trained with the
+  von Mises negative log-likelihood −κ·cos(δ − μ) + log I₀(κ) (computed with `i0e`), so κ is learned as a confidence.
+- **Models:** **TCN-J** — a causal temporal convolutional network per joint on that joint's two pods (weights shared
+  within a joint type), receptive field ≈ 8 s like the geometry windows; **TCN-B** — one causal TCN on the whole body,
+  14 heads; **MLP-B** — the whole body over a fixed recent window without temporal structure (does time help?);
+  **GRU-B** — a recurrent whole-body baseline (does an unbounded memory help?).
+- **Tests before results:** the invariance checks of §5.9 (a common yaw, one pod's yaw), causality and label-blindness
+  as in checks 21.1–21.3, and coverage on validation; then H3 (TCN's advantage larger at 3-DoF joints than at hinge
+  and 2-DoF joints) on test, and in Step 4 the fusion of GEO-ID and the best network by the product of their von Mises
+  densities (H4).
