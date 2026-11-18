@@ -1116,3 +1116,91 @@ MATH_EXPLAINED.md, CODE_EXPLAINED.md, THEORY.md — and `project_explanations/DA
   as in checks 21.1–21.3, and coverage on validation; then H3 (TCN's advantage larger at 3-DoF joints than at hinge
   and 2-DoF joints) on test, and in Step 4 the fusion of GEO-ID and the best network by the product of their von Mises
   densities (H4).
+
+## 2026-11-17 to 2026-11-18 · S3-M0 (start Step 3) · branch `s3-m0` (from `main` = `88763e5`, rebased onto `step2` = `fc89dbb`), worktree `../ml_mesquite_s3`
+
+**State (Step 3 brief §2.1).** No `step2` tag at the start: Step 2 was at S2-M6 (committed locally on `s2-m6`), and a
+Step 2 session was busy in the main folder. This milestone therefore ran in its own git worktree and changed nothing
+there. Step 2 was finished and tagged `step2` (`main` = `fc89dbb`, pull request #7) before this milestone was
+committed, so the branch was rebased onto it, and S3-M1 follows at once (option (a)'s condition is met).
+
+**Plan stated.** Save the brief and update `CLAUDE.md`; ask the S3-M0 questions once; copy and hash the recordings;
+clone `mesquite-mocap` at `87d7c3b`; take the suit facts from it, where the person pointed; record every answer.
+
+**Answers** (the person running the session; asked 2026-11-17, follow-ups 2026-11-18).
+1. Step 2 gate: **option (a), wait.** S3-M1 onward starts once `step2` exists.
+2. Disclosure (rule 3): **keep the Step 3 code local.** Nothing of Step 3 is pushed until the person says otherwise.
+3. Recordings: copy them; no phone-app log of the Nov 14 take exists. Done (Commands).
+4. Suit facts: "the positions are in the mesquite-mocap repo; the hips pod is on the back and the phone on the front;
+   the T-pose is done in front of the laptop". What `mesquite-mocap@87d7c3b` says, and the follow-ups:
+   - Pods: the velvet wear guide, `trees/velvet/wearguide/threejsscene.js:334-404`, gives 14 positions (cm, avatar
+     frame: +Y up, facing +Z, left at +X) and rotations of `pod.glb`, whose case is long along its X (49–53 mm), thin
+     along Y (7–18.5 mm, the face normal) and wide along Z. Converted with SciPy (Euler XYZ, intrinsic): head (−2, 168,
+     8) and chest (−2, 137, 14) on the front, case X up (tilted 20°), face forward; upper arms (∓30, 148), forearms
+     (∓56/58, 147) and hands (∓77, 146) on top of the arm in the T-pose, case X along the arm outward, face up, the
+     left a 180° turn of the right about the vertical (not a mirror); thighs (−12/8, 65, 6.5) and shins (−11/7, 30,
+     2.2) on the front, case X up, face forward, **the same on both legs, not mirrored**; feet (−7/11, 9, 4) on top,
+     case X forward, face up. `smooth` and `honey` place the pods the same way; `thorny` moves the head and chest.
+   - HipsAlt pod: on the lower back (the answer; the brief's §5.1 marker table agrees). The wear guide draws none.
+     Only `velvet` and `smooth` use HipsAlt; `honey`, `spiny`, `velvetGreen` and `bc` disable it.
+   - Phone: front of the belt, (0, 100, 12) turned 180° (`threejsscene.js:296-298`); screen against the body, rear
+     camera looking ahead (`new_device_code/phone_app/README.md:3`, `HOW_IT_WORKS.md:79-82`).
+   - Box: all 15 pods face up with one rotation, a 5×3 grid on a small table in front of the laptop
+     (`trees/bc/wearguide/threejsscene.js:280-327` and `:395-461`).
+   - T-pose: facing the laptop (the answer), the avatar's forward (+Z) in the box guide.
+   - **Chip axes** (answer; `assumption` until a bench test), by the datasheet's convention (the ICM-20948's Z is
+     perpendicular to the package) with the board flat in the case: chip +Z = out of the case face (`pod.glb` +Y),
+     chip +X = along the case length (`pod.glb` +X), chip +Y = `pod.glb` −Z (right-handed). The rotation within the
+     face and the signs are unverified (the module may be turned or upside down), so the mounting stays one
+     parameter per pod. **Bench test (Step 5):** lay a pod face up, then on its long edge, then on its short edge,
+     reading the raw accelerometer each time; the axis reading about +8192 (1 g at ±4 g) points up. The velvet tree
+     cannot settle it: it maps the DMP's world frame to three.js, whatever the mounting.
+5. Trees: **`velvet` on Nov 13 and on Nov 14.**
+6. USB: **no pod was plugged or unplugged after the box step**, on either day.
+7. Nov 14: **Zero in T-pose was pressed**, in the T-pose, before the page's Set T-pose.
+8. Disk and compute budget: not answered; the brief's rule 5 (`CLAUDE.md` rule 13) holds, as an `assumption`.
+9. Docs (2026-11-18): **do not write Step 3's Markdown explanation files**, to save tokens; list them to request
+   later (below). `CLAUDE.md` rule 14 records the change.
+
+**What the answers change.** Two of the brief's readings of Nov 14 (§2.4, items 1 and 3) are ruled out: with no
+replug, the left leg's +75° needs another cause (a pod rebooting by itself, a pod turned in the box, the box step
+itself); a Zero in T-pose rules out the automatic Zero at Start, and the log below shows `camera_facing=forward`,
+right for the front of the belt. So the +74° travel and the 116 cm root (p_y ≈ 1.32 m) are open for S3-M1. Both legs
+are mounted alike in the wear guide, so §4.4's mirrored pair would need a different mounting from the guide's to
+explain Nov 13's outward drift; S3-M6 compares it with scale error × turning, as planned.
+
+**The phone-app log.** `real_suit/phone_app_logs/hips_20261114_162125.csv`, from the Mac's Downloads folder. Its
+epoch column runs 2026-11-15 00:21:25–00:23:02 UTC, 26 min before the take (00:49:16–00:52:25 UTC, the BVH's
+provenance lines), so it pairs with no recording. Its name is one hour behind those times read in Arizona time (MST);
+a phone set to Pacific time would explain it (unverified). Header: `page_tree=velvetFamily`, `camera_facing=forward`,
+`hip_height_m=1.000`, `lever_cam_m=0,0,0.1` (manual), `rate_hz=30`. Zero epochs at t = 21005.13 s (heading 1.11°, at
+the first good frame: the automatic Zero) and 21027.99 s (−47.69°).
+
+**Files added.** `docs/brief/STEP3_BRIEF.md` (the master prompt below its first line of dashes; `diff` against the
+source: identical; 1,405 lines); `manifests/real_suit.csv` (18 files, 259,733,202 bytes). **Changed.** `CLAUDE.md`
+(three briefs, Step 3 scope and rules, the answers), `WORKLOG.md`.
+
+**Commands.**
+- `cp -Rp` of `mesquite-mocap/Mesquite_benchmarks/.` (17 files: seven BVH, five Motive CSV, five TAK) and the log
+  into `$MESQ_DATA_DIR/real_suit/` (248 MB); every SHA-256 equals its source's. `python scripts/check_env.py --require
+  real_suit`: 18 of 18 ok.
+- `git clone --no-checkout` of the local `mesquite-mocap`, `checkout --detach 87d7c3b`, origin set to GitHub, into
+  `$MESQ_DATA_DIR/mesquite-mocap` (399 MB). `87d7c3b` is on GitHub's `main`; there `Mesquite_benchmarks` is a
+  submodule (at `6db7b8d`), not checked out. Disk before the copy: 77 GiB free (52 GB on 2026-11-16).
+- `bash scripts/check_all.sh` in the worktree at `88763e5` with these files uncommitted, 2026-11-18 22:32 UTC, 172 s:
+  `ruff` clean; `pytest` 213 passed; validation 51 passed, 0 failed, 0 skipped of 51. After the rebase onto `step2`
+  (`83d3d89`), 22:39 UTC, 232 s: `ruff` clean; `pytest` **266 passed**; validation **52 passed, 0 failed, 0 skipped
+  of 52**. No code changed, so the regenerated `docs/VALIDATION.md` (its run line only) was not committed.
+
+**Step 3's Markdown parts to request later** (Step 3 brief sections; none written):
+- `docs/step_3/` (§12): `README.md` (entry point, reading order, which file answers which question);
+  `MENTAL_PICTURE.md`; `PIPELINE_EXPLAINED.md`; `MATH_EXPLAINED.md`; `CODE_EXPLAINED.md`; `THEORY.md`; `REFERENCES.md`
+  with `references.bib`; `FIDELITY.md` (the ledger, named in S3-M6's "done when"); `DATASET_CARD.md` (twin_v1 and the
+  loader's specification; S3-M7, needed before Danyal writes the loader); `LEARN_THE_MODEL.md` (the twelve-lesson
+  guide; S3-M8, needed before Danyal starts the models); `MODEL_CARD_TEMPLATE.md`.
+- §11: `README.md` (picture, Step 3 status, quickstart); `docs/SIMULATOR.md`; `docs/DATA.md`; `docs/PIPELINE.md`,
+  `docs/MATH.md` and `docs/CODE.md`; `docs/MUST_KNOW.md` (a Step 3 section); `docs/analysis_plan_DRAFT.md` (H6, H7,
+  the recording split, the dataset-size rule, TCN-P's contrasts; the split must be frozen before S3-M6 fits).
+
+**Open.** The chip axes (the bench test above); the causes of Nov 14's left leg, travel direction and root height
+(S3-M1); the budget, if the default does not suit.
