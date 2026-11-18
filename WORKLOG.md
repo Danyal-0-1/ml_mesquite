@@ -1278,6 +1278,10 @@ definitions (no bug found; nothing was tuned to a reference value), with their r
   and r depends on which frames each analysis names; `13-41-17`'s left arm comes out +0.83 against −0.42 under
   heights, heights relative to the root, height changes, and either clock. Not reproduced.
 
+**Check.** `bash scripts/check_all.sh` at `0f7673a` (clean worktree), 2026-11-18 23:27 UTC, 257 s: `ruff` clean;
+`pytest` **298 passed**; validation **53 passed, 0 failed, 0 skipped of 53**; 49.1: 48 of 62 reference values within
+tolerance, 14 explained differences. A first run failed one test: `test_explain_links` (the moved `cli.py` lines).
+
 **Decisions.** Φ8 and Φ9 use each bone's recorded (local) rotation; Φ12 each pod's drawn world rotation. Φ1 uses the
 standard deviation of both body coordinates together. Φ7 is positive anticlockwise seen from above (to the left of the
 facing; the reference's sign agrees on all six). A jump "snaps back" if the bone returns within 5° of its pre-jump
