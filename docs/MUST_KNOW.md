@@ -1,6 +1,6 @@
 # Must know: using this repository safely
 
-*Status: Step 1 complete (S2-M0). A Step 2 section is added when the geometric estimator is done (S2-M8).*
+*Status: Steps 1 and 2 complete (tag `step2`, S2-M8). §10 is the Step 2 section.*
 
 Read this before trusting any number the repository produces. Each section is short; the self-check questions at the
 end test whether it stuck.
@@ -130,3 +130,87 @@ Only names, sizes and SHA-256 checksums (`manifests/`) are committed. Data live 
     new epoch, but B1 still uses the old box registration, so its error jumps. In the provisional sweep with one
     reboot per pod per hour, B1's mean error is 29.89° against 6.99° without reboots
     ([RESULTS_STEP1.md](RESULTS_STEP1.md), Table 4).
+
+---
+
+## 10. Step 2: the geometric estimator
+
+### 10.1 GEO-K is a ceiling, never a result for the suit
+
+GEO-K receives the simulator's **true mountings** (how each pod sits on its segment) through its one `truth` argument,
+so it knows the anatomical axes in every pod's frame. The real suit can never know them. Use GEO-K only to ask
+*how much could geometry do with perfect axes?*; the gap between GEO-K and GEO-ID is the price of finding the axes
+ourselves. Every table stars it (`USES_TRUTH`: O1, O2, GEO-K). Never quote a GEO-K number as what the suit achieves.
+
+### 10.2 The blind spot and the sign
+
+- **The blind spot.** The knee estimate compares the shadows of the knee axis on the floor, seen from the thigh and
+  from the shin. When the knee axis stands vertical (lying on one's side, some kneeling poses), the shadow is a dot:
+  the window carries no information and κ = 0, by construction (check 22.1).
+- **The sign.** An axis u and its opposite −u fit the motion equally well. A child axis flipped against the parent's
+  turns δ by 180°. Votes decide it: the vertical rule (the true axis has the same vertical component in both pods)
+  and the T-pose rule (the wrong sign would mean the knee turned half round since the T-pose); with the T-pose tie the
+  relative sign is right by construction. Without a vote the window is *ambiguous* and gets κ = 0 (check 24.1).
+- **GEO-ID needs a knee first.** The facing comes from the knee axes, the T-pose frames from the facing, and the
+  range of motion of every other joint from the T-pose frames. Where the knee axes are refused (the motion does not
+  identify them), GEO-ID *is* B1 at every joint, by construction. Table 3b of
+  [RESULTS_STEP2.md](RESULTS_STEP2.md) says how often that happened on test.
+
+### 10.3 Why κ is near zero at ball joints
+
+A hip, shoulder, lower back or neck has no pin, only walls: its range of motion Ω (fitted on the training subjects).
+While the motion stays inside the walls, every δ is equally consistent with "the joint is inside its range": the
+cost is flat and κ = 0 (check 26.1). Information appears only near a wall, so the 3-DoF results depend on how often
+everyday motion reaches its limits — the excitation strata of the results. Expect κ ≈ 0 most of the time there;
+it is the honest answer, not a bug.
+
+### 10.4 Everything is provisional
+
+- **Descriptive only.** Danyal has not frozen the split or the analysis plan yet, so every Step 2 comparison is
+  descriptive, whatever its p-value. The banner at the top of RESULTS_STEP2 says so.
+- **The suit is still assumed.** Most error-model parameters are assumptions until the bench measures them; the
+  estimator's fitted beliefs (κ scales, model errors, q, κ_hold) were fitted on simulated validation sessions under
+  those assumptions. A different real drift or turning changes them.
+- **SMPL is not a person.** The AMASS knees are SMPL knees (not exact hinges); the calibration fitted there transfers
+  poorly to DIODEM's mechanical hinges (Table 10 shows both settings).
+- **Some choices were made after the first results**: the tied knee-axis threshold and the κ_hold fallback were
+  chosen on validation data, but the problems were first noticed in a first test run and in test-split sessions used
+  for the explanation. WORKLOG (S2-M6) records each choice, its validation evidence and what prompted it; a frozen
+  plan should fix them before any confirmatory test.
+
+### 10.5 How to tell that the estimator is broken
+
+- **GEO-ID differs from B1 on a session with no information** (no knee motion): it must equal B1 exactly
+  (`test_geo_id_equals_b1_on_noise_free_motion_without_information`, check 27.1).
+- **A common yaw of the room changes GEO's output** (check 28.1), or **deleting later frames changes earlier answers**
+  (causality, check 21.1), or **deleting the labels changes anything** (label leak, check 21.3).
+- **A knee off by almost exactly 180°**: a sign flip (look at `sign_tally` in the window diagnostics).
+- **Coverage far from 68 % and 95 %** on validation (check 30.1): the calibration no longer matches the solvers;
+  refit it with `fit-geometry calibration` after any solver change.
+- **Pair timing beyond 15 ms** (check 31.1): the clock map is wrong.
+- **GEO-K worse than B1 at hinges with drift on and fusion noise off** (check 29.1): the solver or its axes are wrong.
+- **GEO-ID suspiciously close to O2**: it is reading truth somewhere.
+
+### 10.6 Ten Step 2 self-check questions
+
+1. **What does GEO-K know that GEO-ID does not, and what is GEO-K for?** The true mountings, hence the true joint
+   axes in the pods' frames. It is the ceiling of the geometry, not a deployable result.
+2. **Why is the knee's estimate blind when its axis is vertical?** The method compares the axis's horizontal
+   shadows; a vertical axis has no shadow, so I = 0 and κ = 0.
+3. **What does a flipped knee axis do to δ, and what prevents it?** It turns δ by 180°. The vertical and T-pose
+   votes, and the T-pose tie of the two axes.
+4. **Why can GEO-ID say nothing about a hip until a knee has been identified?** The hip's range of motion needs the
+   T-pose frames, which need the facing, which comes from the knee axes.
+5. **Why is κ ≈ 0 at a shoulder in most everyday motion?** The range-of-motion cost is flat inside the limits: every
+   δ fits equally until the motion reaches a wall.
+6. **What does κ = 0 mean in the filter?** No information: the window changes nothing, and the joint keeps its
+   previous belief (at the start, box registration).
+7. **What happens to a joint's belief when one of its pods reboots?** κ drops to 0 at the first frame of the new
+   boot epoch; the geometry must find the new δ from scratch, as the reboot table shows.
+8. **Why was κ recalibrated, and on which data?** The raw window κ treats correlated samples as independent and is
+   far too confident; the scale and model error per joint type were fitted on the **validation** subjects only.
+9. **Why are the Step 2 p-values not evidence for or against H2 yet?** The plan and the split are not frozen:
+   everything is descriptive until Danyal freezes them.
+10. **GEO-ID equals B1 at every joint of a session. Is that a bug?** Usually not: the knee axes were refused (the
+    motion did not identify them), so nothing else could run. It is a bug only if the knees were clearly identifiable
+    (GEO-K's windows informative and the contrast low) — then look at the identification thresholds.
