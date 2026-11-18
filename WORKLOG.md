@@ -930,3 +930,51 @@ bootstraps (10,000 resamples, seed 20261117) and Holm's correction, coverage, se
 - **Transfer to real hinges:** the AMASS knee calibration is pessimistic for DIODEM's mechanical hinges (the assumed
   beliefs did better there); the bench must say which the real suit's knees resemble.
 - Whether `docs/RESULTS_STEP1.md` should be regenerated with the shared idle turns (about 12 h, 100 GB).
+
+---
+
+## 2026-11-18 · S2-M7 (the explanation pipeline) · branch `s2-m7` (from `main` = `2f14e9c`)
+
+**Previous entry's commits.** S2-M6: `03d4a18`, `f988391`, `fab6e3d`, `e1f8c3b`, `045b343`, `f85ec19`, `317323c`, `d6c0487`,
+`de719c2`, merged into `main` as `2f14e9c` (pull request #5), tag
+`step2-m6`.
+
+**Files added.** `docs/explain/README.md` (the index: the pipeline, what each file answers and how long it takes,
+which file for which question), `MENTAL_PICTURE.md` (no equations; the suit, the room, the simulator, Step 0, the
+baselines, the geometry, confidence and memory, one diagram and one in/out table), `PIPELINE_EXPLAINED.md` (one real
+AMASS test-split session through the ten stages, with its numbers, and the DIODEM path), `MATH_EXPLAINED.md` (every
+formula derived, each naming its function and its test; worked examples E1–E29), `CODE_EXPLAINED.md` (the module
+map, `baselines --methods GEO-ID` traced call by call, the Step 2 modules block by block, the Step 1 modules Step 2
+stands on, the tests, how to extend, how to debug), `THEORY.md` (rotations, inertial sensing, gauge and
+identifiability, kinematic constraints, directional statistics, estimation, evaluation, a bridge to Steps 3–4, full
+references); every file ends with self-check questions and answers. `tests/test_explain_examples.py` recomputes every
+worked example (27 tests); `tests/test_explain_links.py` checks every link, anchor, `path:line` reference, linked
+symbol and named test (the link text's backticked symbol must stand on the linked line, so a reference cannot drift
+away from the code it names).
+
+**Commands and results.**
+- The session PIPELINE_EXPLAINED follows: `python -m mesqsim simulate --seed 1 --motion
+  "$MESQ_DATA_DIR/amass/CMU/13/13_02_poses.npz" --set session.idle_s=562` and `python -m mesqsim baselines --run
+  <folder> --methods B0 B1 O1 O2 GEO-K GEO-ID` at `d6c0487` (clean worktree; run folder
+  `run_gd6c0487_c5ce0b3f7_s1`; identical bytes at `317323c`). All joints, mean / median / P95: B1 7.02 / 4.23 /
+  18.86°, GEO-ID 7.58 / 7.00 / 17.65°, GEO-K 5.93 / 4.71 / 11.71°. The per-stage numbers (plan, ψ, Step 0 counts,
+  clock maps, pair timing, window solutions, filter states) were read from that folder and from
+  `GeoEstimator.run(..., diagnostics=True)` with short scratch scripts.
+- `pytest tests/test_explain_examples.py tests/test_explain_links.py`: 46 passed (27 worked examples; 19 link checks over the six files).
+- `bash scripts/check_all.sh` at `822a171` (clean worktree), 2026-11-18 16:21 UTC: ruff clean; pytest **266 passed**
+  (the 46 new ones included); validation **52 passed, 0 failed, 0 skipped of 52**. Its wall time was 2 h 12 min for
+  4 min 59 s of compute: the Mac, on battery, slept between steps.
+
+**Fixes found while explaining** (rule: where the explanation and the code or MATH.md disagree, fix the wrong one).
+- MATH_EXPLAINED cited a test that does not exist (`test_targets_are_child_minus_parent`); it now cites
+  `test_worked_example_section_4_4` and `test_same_example_through_the_tree_functions`.
+- THEORY §6.4 overstated what recalibration shows; it now gives the measured coverage and names its command.
+- Following one session through the pipeline exposed the low knee-axis acceptance (GEO-ID equal to B1 at every joint
+  of the first session tried) and the per-pod idle turns; the late T-pose snapshot came out of the reboot table. All
+  three were fixed in S2-M6, before its final results (that entry).
+- E26 (the knee window cap) was rewritten for the refitted calibration (s = 0.011776, σ_m = 0.9385°: cap 43.89,
+  8.65°); its test computes it through `calibrated_kappa`.
+
+**Decisions.** The worked session is a test-split clip (`CMU/13/13_02`): nothing is fitted on it, and it is the
+split the results describe. It was chosen for its knee motion, and because it shows GEO-ID's successes (the right
+knee, the lower back, the right ankle) and failures (a left-knee axis 24.5° off; the hips) side by side.
