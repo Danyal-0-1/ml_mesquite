@@ -233,6 +233,8 @@ class GeoEstimator:
             elif kind == 1:
                 filt.reset(t, arg)
                 log.append((t, 1, arg))
+            elif kind == 3:  # not a filter event: the T-pose snapshot, taken before any later reset
+                self.state["tpose"] = self._tpose_snapshot()
             else:
                 d_w, k_stat = self._window(t)
                 filt.update(t, d_w, calibrated_kappa(k_stat, scales, sigmas) * weight)
@@ -269,8 +271,14 @@ class GeoEstimator:
         return min(firsts) if firsts else 0.0
 
     def _events(self, t_init: float, tq: np.ndarray) -> list[tuple[float, int, object]]:
-        """Time-ordered (t, kind, arg): kind 0 init, 1 reset (arg: joints), 2 window."""
+        """Time-ordered (t, kind, arg): kind 0 init, 1 reset (arg: joints), 2 window, 3 the T-pose snapshot.
+
+        The snapshot is its own event at the end of the T-pose: a pod that reboots later (in the idle, say) must not
+        erase the T-pose's box belief, which ties the knee axes and gives every pod its T-pose frame (S2-M6 fix).
+        """
         events: list[tuple[float, int, object]] = [(t_init, 0, None)]
+        if "tpose" in self.phases and self.phases["tpose"][1] >= t_init:
+            events.append((float(self.phases["tpose"][1]), 3, None))
         for pod in range(N_PODS):
             for ep, t_first in self.starts[pod]:
                 if ep >= 1 and t_first > t_init:
@@ -373,7 +381,7 @@ class GeoEstimator:
 
     def _tpose_snapshot(self) -> dict:
         """q_i(T): mean of each pod's fresh T-pose samples of its epoch at the T-pose end (Step 0's snapshot, per
-        epoch), and the filter's belief at that moment (box registration plus any T-pose windows)."""
+        epoch), and the filter's belief at that moment (box registration, unless a pod rebooted before it)."""
         a, b = self.phases["tpose"]
         epochs = self._epochs_at(b)
         q = np.full((N_PODS, 4), np.nan)

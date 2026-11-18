@@ -131,3 +131,21 @@ def test_kappa_hold_meets_the_target_or_falls_back_to_the_smallest_tail():
     thr, kept, p95, rule = fit_hold(err + 0.2, kappa, np.deg2rad(10.0))
     assert rule == "smallest P95" and kept >= 0.10 and p95 > np.deg2rad(10.0)
     assert p95 == pytest.approx(np.percentile((err + 0.2)[kappa >= thr], 95))
+
+
+def test_a_reboot_in_the_idle_keeps_the_tpose_frames():
+    """S2-M6 fix: the T-pose snapshot is taken at the end of the T-pose. A pod that reboots in the idle resets its
+    joints at the motion's first frame, but the T-pose's box belief (which ties the knee axes and gives every pod its
+    T-pose frame) survives, so the rebooted shin's ankle is still solved."""
+    cfg = CFG.with_overrides({"session.idle_s": 300.0})
+
+    def hook(plan):
+        plan.pods[10].reboots_s = [plan.phases["motion"][0] - 120.0]  # the left shin, in the idle
+
+    d = simulate_session(cfg, 11, MotionSource.from_spec("synthetic:walk:20"), plan_hook=hook)
+    series = step0.decode(d.frames, d.session)
+    host = ev.Grid(d.labels_joints).t_s + d.meta["plan"]["host_epoch_s"]
+    est, diag = GeoEstimator(CFG).run(series, d.session, host, diagnostics=True)
+    assert any(kind == 1 and 10 in joints for _, kind, joints in diag.events.events)  # the knee was reset
+    status = [w["status"] for w in diag.windows if w["joint"] == 12]  # l_ankle: parent pod 10
+    assert "ok" in status and diag.state["facing_rad"] is not None
