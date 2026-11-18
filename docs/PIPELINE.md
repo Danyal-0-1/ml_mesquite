@@ -200,7 +200,8 @@ Code: `mesqsim/evaluate.py`, `mesqsim/pipeline.py`.
   simulated, decoded and scored in memory in worker processes: B0, B1, O1, O2, GEO-K, GEO-ID, GEO-ID-nofilter,
   GEO-ID-hinge, GEO-ID-w4, GEO-ID-w16. Then one-at-a-time sweeps at 10 min (B1, O1, O2, GEO-K, GEO-ID), the
   re-acquisition after reboots, and GEO-ID on every DIODEM hinge with the fitted and the assumed beliefs.
-- **Out:** `docs/RESULTS_STEP2.md` (tables 1–10, H2's contrasts) and `docs/figures/results_step2_{growth,reliability,
+- **Out:** `docs/RESULTS_STEP2.md` (tables 1–10 and 3b — what GEO-ID could identify —, H2's contrasts) and
+  `docs/figures/results_step2_{growth,reliability,
   selective,sweeps,reboot}.png`. Nothing is written per session. The same config and seed give an identical file
   apart from its **Run** line, which holds the date, CPU, wall time and compute time (check 33.1).
 

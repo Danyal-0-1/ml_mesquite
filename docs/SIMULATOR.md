@@ -40,9 +40,12 @@ python scripts/make_results.py                    # the default dataset + every 
   - Each session's seed comes from (run seed, sequence, window, start, variant).
   - The run folder holds `sessions/<id>/` and `dataset.csv` (id, source, subset, subject, split, window, motion start,
     variant, seed). `results/errors.parquet` keeps the motion-phase steps with each session's split and motion start.
-- **Sweeps** (`scripts/make_results.py`) vary one parameter at a time around the default, over the values under
-  `sweep` in the config (offset mode, box slot, drift, scale factor, reboots, stalls, loss, burst). Motion starts at
-  10 min, one window per sequence. Every value reuses the same session seeds (common random numbers), so a
+- **Sweeps** (`scripts/make_results.py`, and `scripts/make_results_step2.py` for the Step 2 estimators) vary one
+  parameter at a time around the default, over the values under `sweep` in the config (offset mode, box slot, drift,
+  scale factor, reboots, stalls, loss, burst). Step 2 added the drift **stress value 2.0 °/min**
+  (`error_model.drift_sigma_deg_per_min` sweeps 0.05, 0.2, 1.0, 2.0): the Head pod of the real suit drifted −2.0 °/min
+  for 7 minutes in its 2026-11-04 static hold (Step 2 brief §4.1; one pod's early drift, not a measured spread, so the
+  label stays `assumption`). Motion starts at 10 min, one window per sequence. Every value reuses the same session seeds (common random numbers), so a
   difference between values comes from the swept parameter alone.
 - **Results**: `scripts/make_results.py` writes `docs/RESULTS_STEP1.md` (tables 1–4 and the parameter set),
   `docs/figures/results_growth.png` and `results_sweeps.png`, plus CSV tables in the default run's `results/`. It
@@ -99,7 +102,13 @@ python scripts/make_results.py                    # the default dataset + every 
   error, reboots, sample-task stalls, burst radio loss, decode delay, clock rate error, arrival latency and
   quantisation. Each one, with its model, value and label, is in [MATH.md §5](MATH.md).
 - **Random streams:** each term draws from its own stream: `pods`, `heading`, `drift`, `reboots`, `epochs`, `walk`,
-  `fusion`, `timing`, `radio`, `loss`, `timeline`.
+  `fusion`, `timing`, `radio`, `loss`, `timeline`, `idle_turns`.
+- **Idle turning is the wearer's** (fixed in S2-M6). The whole turns during the unrecorded idle are drawn once per
+  session (`SessionPlan.idle_turns`, stream `idle_turns`) and shared by all 15 pods, because they are worn on one
+  body; a whole turn therefore changes a joint's δ only by the difference of its two pods' scale-factor errors times
+  360°. Until S2-M6 each pod drew its own number of turns, which exaggerated the relative error after long idles;
+  [RESULTS_STEP1.md](RESULTS_STEP1.md) (tag `step1`) was made that way, [RESULTS_STEP2.md](RESULTS_STEP2.md) with the
+  fix (`test_idle_whole_turns_belong_to_the_wearer_and_every_pod_shares_them`).
 - **Not modelled** (each needs a measurement first): the chip rate's ±1 % drift over temperature, per-axis scale
   factors, cross-axis sensitivity, and radio loss correlated across pods.
 

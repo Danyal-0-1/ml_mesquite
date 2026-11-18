@@ -394,7 +394,10 @@ m̂_i = F_T⁻¹·Y(ĉ_i(T))·q_i(T) once φ is known. The brief's way to φ is 
 2. **Facing.** In the T-pose the left-pointing knee axis is the body's left axis: φ = heading of
    Y(ĉ_thigh(T))·q_thigh(T)·u_left; with both knees, their circular mean.
 3. **T-pose frames** m̂_i for every pod whose chain from the pelvis had a box prior at the T-pose. A reboot later
-   does not invalidate them: m̂_i describes the strap, not the north.
+   does not invalidate them: m̂_i describes the strap, not the north. The snapshot (q_i(T) and the box belief) is
+   therefore taken at the end of the T-pose, as an event of its own: until S2-M6 it was taken at the first geometry
+   window, after the idle, where the resets of pods that had rebooted in the idle had already erased their box prior
+   (`test_a_reboot_in_the_idle_keeps_the_tpose_frames`).
 
 On synthetic walks (scratch run, fusion noise and the 5° T-pose posture error on) m̂ was within a median 5.4–5.7°
 of the true mountings, about the posture error. Before the knees are identified, GEO-ID's 2-DoF and 3-DoF joints
@@ -421,22 +424,30 @@ estimator exactly (`test_replay_reproduces_the_estimator_exactly`).
    outputs at every motion-phase 32 Hz step.
 3. **κ_hold:** the smallest threshold whose retained steps (κ ≥ threshold) have a P95 error ≤
    `geometry.hold_target_p95_deg` (10°, an assumption). "Uncertain" then means: not shown, on validation, to be
-   within that bound. The estimate still holds while uncertain.
+   within that bound. If no threshold reaches the target, the threshold whose retained steps have the smallest P95
+   among those keeping at least 10 % of the steps (`geo_fit.fit_hold`; the config's source says which rule applied).
+   The estimate still holds while uncertain.
 
-**Values (AMASS validation, 330 sessions of 78 sequences, 9 subjects, seed 1, commit 944b822):**
+**Values (AMASS validation, 330 sessions of 78 sequences, 9 subjects, seed 1, commit f85ec19):**
 
 | | hinge | 2-DoF | 3-DoF |
 |---|---|---|---|
 | fitted | s and σ_m | s only | s and σ_m |
-| s | 60.15 | 0.752 | 4.577 |
-| σ_m | 66.04° | 3° (assumption) | 20.85° |
-| largest window κ, s/σ_m² (its 1σ spread) | 45.2 (8.5°) | — | 34.6 (9.7°) |
-| coverage of the 68 % / 95 % intervals on validation | 0.715 / 0.945 | 0.702 / 0.949 | 0.728 / 0.949 |
+| s | 0.01178 | 0.557 | 3.728 |
+| σ_m | 0.94° | 3° (assumption) | 20.68° |
+| largest window κ, s/σ_m² (its 1σ spread) | 43.9 (8.6°) | — | 28.6 (10.7°) |
+| coverage of the 68 % / 95 % intervals on validation | 0.692 / 0.926 | 0.704 / 0.927 | 0.730 / 0.949 |
 
-q = 5.623·10⁻⁵ rad²/s (a joint's belief widens by about √(q·600 s) = 10.5° over 10 minutes without information);
-κ_hold = 89.13 (35.1 % of validation steps certain). The knee's cap (σ ≈ 8.5° per window) matches its windows' median
-error of 6.6° on AMASS (§12): the SMPL knee is not an exact hinge. Coverage over all joints: 0.715 / 0.948. H5's
-target (within ±5 points of 68 and 95) is a result to be measured on **test**, in RESULTS_STEP2.
+q = 5.623·10⁻⁵ rad²/s (a joint's belief widens by about √(q·600 s) = 10.5° over 10 minutes without information).
+κ_hold = 158.5: no threshold reached a retained P95 of 10° (the smallest was 10.16°, because the box prior's own
+error tail at 1 min sits near 10°), so the fallback rule applied; 32.5 % of validation steps are certain. A hinge
+scale s ≪ 1 says that a raw window κ overstates its information by orders of magnitude (neighbouring samples are
+not independent); the cap says no knee window is worth more than about ±8.6°. Coverage over all joints: 0.713 / 0.936.
+H5's target (within ±5 points of 68 and 95) is a result to be measured on **test**, in RESULTS_STEP2.
+
+GEO-K's own calibration (`fit-geometry calibration --estimator K`, same sessions and commit): hinge s = 0.01399,
+σ_m = 0.73° (cap 85.9, 6.2°); 2-DoF s = 0.003916, σ_m = 2.26° (cap 2.5: the 2-DoF constraint's raw κ is wildly
+optimistic); 3-DoF s = 3.496, σ_m = 11.29° (cap 90.1, 6.0°); validation coverage 0.734 / 0.948.
 
 ## 17. Step 2: DIODEM (owned by [mesqsim/diodem_geo.py](../mesqsim/diodem_geo.py))
 
@@ -449,9 +460,9 @@ target (within ±5 points of 68 and 95) is a result to be measured on **test**, 
   joint a range of motion for these chains, which has no training data).
 - **Reference.** A perfect registration at the start (δ held at its true first value): its error is the six-axis
   drift, −80.7° after 6.1 min on arm exp01's seg2 → seg3.
-- **Result (check 32.1, arm exp01, seg2 → seg3):** with the AMASS-fitted beliefs GEO-ID's median error is 15.0°
-  (P95 29.5°) against 80.7° for the start registration; with the assumed beliefs before the fit it was 7.8° (P95
-  24.5°). The knee calibration from AMASS (one window ≈ 8.5°) is pessimistic for DIODEM's near-perfect mechanical
+- **Result (check 32.1, arm exp01, seg2 → seg3):** with the AMASS-fitted beliefs GEO-ID's median error is 15.2°
+  (P95 29.6°) against 80.7° for the start registration; with the assumed beliefs before the fit it was 7.8° (P95
+  24.5°). The knee calibration from AMASS (one window ≈ 8.6°) is pessimistic for DIODEM's near-perfect mechanical
   hinge, so the filter follows the fast six-axis drift (about 30°/min at first) more slowly: a transfer effect,
   reported per experiment in [RESULTS_STEP2.md](RESULTS_STEP2.md). Mechanical chains: no claim about people.
 
