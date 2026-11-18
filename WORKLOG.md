@@ -1289,3 +1289,57 @@ rotation within 0.5 s (this module's choice). Recording ids `nov04`, `nov13_1341
 proposed split (§5.4) and suit versions are in `recordings.py` for Danyal to freeze.
 
 **Open.** Whether the reference Φ8 was pooled; the arm tracking behind Φ11.
+
+## 2026-11-18 · S3-M2 (the page twin) · branch `s3-m2` (stacked on `s3-m1`; nothing pushed)
+
+**Previous milestone's commits.** `0f7673a`, `f0befde` on `s3-m1` (local).
+
+**Plan stated.** Port the page's pose chain, smoothing, root and recorder to Python with every rule and defect; run
+the real `js/custom_icm.js` and `js/bvh_converter.js` unmodified in Node as the golden reference; three scenarios in
+`velvet` and `smooth`; commit the golden outputs as fixtures; reproduce the root's fixed point.
+
+**Files added.** `mesqsim/twin/{three_math,page,page_scenarios,golden}.py`; `tools/page_golden/{run.mjs,
+make_fixtures.py}`; `tests/test_page_twin.py`; `tests/fixtures/page_golden/` (six scenarios of 358-480 kB and the
+avatar's node tree, 12 kB; synthetic). **Changed.** `mesqsim/validation.py` (check 40.1).
+
+**What was built.**
+- `three_math.py`: three.js r157's quaternion multiply, conjugate (its `invert`), normalise, slerp (every branch,
+  including "equal: keep the old value", which is what freezes a still bone and makes Φ8's exact repeats), Euler
+  'XYZ' through `Matrix4.compose`, vector lerp; and `js_number`, JavaScript's `Number::toString` for the BVH writer.
+- `page.py`: `PageTwin.handle(msg, t)`, `calibrate()`, `record_start/tick/stop`, with the rules of brief §2.2:
+  world delta raw · calibration⁻¹ (the ignored `bc`); the tree map; `tposeOffset`, then the mounting offset, fitted
+  once at the first Set T-pose with the page's flip test; a child's local from its parent pod's stored target global
+  (rig bones in between ignored; the feet store no global; Spine falls back to HipsAlt while Hips' global is the
+  identity); one slerp per message with `slerpDict`; Hips from HipsAlt unless it is silent for over 1 s (whole-ms
+  wall clock, as a `Date`); the root with `posswap`, × 100, `− initialPosition`, + 100 cm, lerp 0.1, the
+  zero-coordinate drop, and `initialPosition` aliased to the hips at Set T-pose; the recorder's joints, OFFSETs,
+  Euler angles, measured frame time and provenance lines. A tree without a bone's entry (`_HipsAlt_DISABLED`) makes
+  the page throw; the twin drops the message at the same point.
+- The avatar: `load_rig` reads `glbs/scene2.glb` as GLTFLoader builds it, including its renaming (each bone has a
+  zero-offset copy hung under it; names are reserved depth first, so the page's `getObjectByName` finds the real
+  bones and the copies become `mmHips_1` ...). Rest rotations are all identity; the offsets equal the OFFSETs in
+  Danyal's BVH files (LeftArm 12.655, −0.266, −2.601 cm).
+- `run.mjs`: three.js r157 and its GLTFLoader from `build-static/`, the avatar prepared as `threejsscene.js:433-470`,
+  `slerpDict` evaluated from `index.html`, the tree's `meta.json`, both page scripts unmodified in a `vm` context
+  with inert stubs (DOM, jQuery, toasts, moment, KalmanFilter, timers) and a scripted clock; the recorder of the
+  page's inline script (`index.html:373-431`) is mirrored there.
+- Scenarios (`page_scenarios.py`): pods report Y(−ψ) · S(t) · M with random norths and mountings at 16 Hz, the phone
+  at 30 Hz, a Set T-pose and a 33 ms recorder: a T-pose then a left-leg swing; a 90° turn while the phone walks 1 m;
+  the pelvis swaying while HipsAlt is silent from 2.0 to 4.0 s.
+
+**Results** (`python tools/page_golden/make_fixtures.py`, Node v24.11.1, three r157, mesquite-mocap `87d7c3b`, 1.3 s;
+`pytest tests/test_page_twin.py`). Six scenario-tree pairs, 6,182 messages: largest difference in a drawn quaternion
+or the hips position **6.7e-16**, in a BVH number **9.2e-14** (4,949-7,709 numbers per file; last-digit differences
+from V8's and macOS's maths libraries), BVH headers identical; the Node test rebuilds the fixtures identically. The
+root's fixed point: a still phone at p puts the hips at 100 p + c before Set T-pose and at **(100 p + c) / 2** after
+it (to 1e-9). In the HipsAlt scenario the phone's messages leave the hips alone for the first second of silence,
+then drive them. Check 40.1 passes.
+
+**Decisions.** `ideal_root_box` copies `initialPosition` as the brief says: travel is drawn 1:1, but the hips' height
+becomes relative to the T-pose's (x* = 100 (p − p_T)); it takes a heading correction per pod (B1 later) applied as
+Y(δ) · q before the snapshot, so at t and at the T-pose alike. `three_math.py` repeats three.js's operation order
+rather than reusing `mesqsim.conventions` (same conventions), because bit-level equality decides when a bone stops.
+
+**For Danyal.** mesquite-mocap is licensed GPL-3.0, and `mesqsim/twin/page.py` is a port of its page code (the
+fixtures are its outputs). Nothing is published while Step 3 stays local, but before this repository publishes Step
+3 the licence of that module needs a decision.

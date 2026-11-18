@@ -1607,6 +1607,36 @@ def _results_repro(quick: bool) -> CheckResult:
 # ---------------------------------------------------------------- Step 3 (check 39 + n is Step 3 brief §10, item n)
 
 @register(
+    "40.1",
+    "The page twin draws what the page draws (Step 3 brief §4.10)",
+    "Replay the six golden scenarios (a T-pose then a leg swing; a turn while the phone moves; HipsAlt silent for "
+    "2 s; each in the velvet and smooth trees) through mesqsim/twin/page.py and compare every drawn bone quaternion "
+    "and hips position after each message, and every number of the recorded BVH, with what js/custom_icm.js and "
+    "js/bvh_converter.js wrote when run unmodified in Node (tools/page_golden/run.mjs, three.js r157, the avatar "
+    "glbs/scene2.glb, mesquite-mocap 87d7c3b).",
+    "The twin's BVH files are judged against Danyal's, so the twin must draw with the page's own rules, defects "
+    "included; a port that agrees only on simple inputs would hide exactly the effects Step 3 studies.",
+    "quaternions within 1e-5, BVH numbers within 1e-4, the BVH header identical",
+    "pytest tests/test_page_twin.py; python tools/page_golden/make_fixtures.py (needs Node)",
+)
+def _page_twin(quick: bool) -> CheckResult:
+    from .twin import golden
+
+    names = golden.cases()
+    if not names:
+        return CheckResult("no golden fixtures under tests/fixtures/page_golden", None)
+    rig_ = golden.rig()
+    rs = [golden.compare(golden.load_case(n), rig_) for n in names]
+    q = max(max(r["quat"], r["hips"]) for r in rs)
+    b = max(r["bvh_numbers"] for r in rs)
+    ok = q <= golden.QUAT_TOL and b <= golden.BVH_TOL and all(r["bvh_header_equal"] and r["bvh_count_equal"]
+                                                              for r in rs)
+    return CheckResult(f"{len(rs)} scenarios, {sum(r['messages'] for r in rs)} messages: largest quaternion or hips "
+                       f"difference {q:.1e}, largest BVH number difference {b:.1e}, headers identical "
+                       f"{all(r['bvh_header_equal'] for r in rs)}", ok)
+
+
+@register(
     "49.1",
     "The analysis of 2026-11-14 is reproduced (Step 3 brief §5.3)",
     "Φ1-Φ12 of Danyal's seven recordings (mesqsim.real: the BVH and Motive readers, marker naming and following, "
