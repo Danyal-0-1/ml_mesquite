@@ -1335,6 +1335,9 @@ root's fixed point: a still phone at p puts the hips at 100 p + c before Set T-p
 it (to 1e-9). In the HipsAlt scenario the phone's messages leave the hips alone for the first second of silence,
 then drive them. Check 40.1 passes.
 
+**Check.** `bash scripts/check_all.sh` at `bc1299e` (clean worktree), 2026-11-19 03:05 UTC, 253 s: `ruff` clean;
+`pytest` **322 passed** (the Node test included); validation **54 passed, 0 failed, 0 skipped of 54**.
+
 **Decisions.** `ideal_root_box` copies `initialPosition` as the brief says: travel is drawn 1:1, but the hips' height
 becomes relative to the T-pose's (x* = 100 (p − p_T)); it takes a heading correction per pod (B1 later) applied as
 Y(δ) · q before the snapshot, so at t and at the T-pose alike. `three_math.py` repeats three.js's operation order
