@@ -1391,6 +1391,9 @@ smooth); the response test failed, and a first report claimed 0.2-2 % accelerome
 The head's surface axis was first the neck-to-head bone, which turns with the neck: 6.3° median, 22° P95 against the
 head; it is now the head joint's own up.
 
+**Check.** `bash scripts/check_all.sh` at `49c3587` (clean worktree), 2026-11-19 03:22 UTC, 256 s: `ruff` clean;
+`pytest` **336 passed**; validation **55 passed, 0 failed, 0 skipped of 55**.
+
 **Decisions.** The twin's parameters live in `configs/twin.yaml` (`twin:`, and an empty `learning:` for Danyal), so
 `configs/default.yaml` and the config hashes that name Step 1's and Step 2's runs are untouched. The IMU rate
 (225 Hz) is an assumption until S3-M4 reads the firmware.
