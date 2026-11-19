@@ -1637,6 +1637,47 @@ def _page_twin(quick: bool) -> CheckResult:
 
 
 @register(
+    "41.1",
+    "What a pod's sensors feel: the four exact cases of Step 3 brief §4.3",
+    "mesqsim.twin.physics.imu_truth on synthetic motion sampled at 1 kHz with the interpolating spline: (a) a still "
+    "pod; (b) a constant spin about a body axis; (c) free fall; (d) a site on a circle at constant speed; and "
+    "(e) the smoothing spline's response at the cutoff (8 Hz, samples at 120 Hz).",
+    "ω and f are the twin's sensor inputs: a wrong frame, sign or derivative here reaches every pod's fusion, and "
+    "no later statistic would reveal which.",
+    "(a) ω = 0, f = Rᵀ(0, 0, 9.81) within 1e-9; (b) ω equals the spin within 1e-6 rad/s; (c) f = 0 within 1e-6; "
+    "(d) the centripetal force within 1e-4 relative; (e) amplitude 0.5 ± 0.05 at the cutoff",
+    "pytest tests/test_twin_body.py",
+)
+def _twin_physics(quick: bool) -> CheckResult:
+    from scipy.spatial.transform import Rotation
+
+    from .twin.physics import G_M_S2, imu_truth, position_spline
+
+    t = np.linspace(0.0, 4.0, 4001)
+    q0 = Rotation.from_euler("xyz", [20, -35, 110], degrees=True)
+    still = imu_truth(t, np.tile(q0.as_quat(), (t.size, 1)), np.tile([0.3, -1.2, 0.9], (t.size, 1)), 225.0)
+    e_a = max(np.abs(still.omega_rad_s).max(), np.abs(still.f_m_s2 - q0.inv().apply(-G_M_S2)).max())
+    w = np.array([0.4, -1.1, 2.3])
+    spin = imu_truth(t, (q0 * Rotation.from_rotvec(np.outer(t, w))).as_quat(), np.zeros((t.size, 3)), 225.0)
+    e_b = np.abs(spin.omega_rad_s - w).max()
+    p = np.array([0.1, 0.2, 30.0]) + np.outer(t, [1.0, -0.5, 2.0]) + 0.5 * np.outer(t ** 2, G_M_S2)
+    e_c = np.abs(imu_truth(t, np.tile(q0.as_quat(), (t.size, 1)), p, 225.0).f_m_s2).max()
+    r, om = 0.8, 2 * np.pi * 0.7
+    pc = np.stack([r * np.cos(om * t), r * np.sin(om * t), np.ones(t.size)], axis=1)
+    circ = imu_truth(t, np.tile([0.0, 0.0, 0.0, 1.0], (t.size, 1)), pc, 225.0, t_eval=np.linspace(0.5, 3.5, 301))
+    te = circ.t_s
+    want = np.stack([-r * om ** 2 * np.cos(om * te), -r * om ** 2 * np.sin(om * te), np.full(te.size, 9.81)], axis=1)
+    e_d = np.abs(circ.f_m_s2 - want).max() / (r * om ** 2)
+    ts = np.arange(0.0, 20.0, 1 / 120)
+    x = np.sin(2 * np.pi * 8.0 * ts)
+    y = position_spline(ts, np.stack([x, x, x], axis=1), 8.0)(ts)[240:-240, 0]
+    amp = float(np.sqrt(2 * np.mean(y ** 2)))
+    ok = e_a < 1e-9 and e_b < 1e-6 and e_c < 1e-6 and e_d < 1e-4 and abs(amp - 0.5) < 0.05
+    return CheckResult(f"(a) {e_a:.1e}; (b) {e_b:.1e} rad/s; (c) {e_c:.1e} m/s²; (d) {e_d:.1e} relative; "
+                       f"(e) amplitude {amp:.3f} at the cutoff", ok)
+
+
+@register(
     "49.1",
     "The analysis of 2026-11-14 is reproduced (Step 3 brief §5.3)",
     "Φ1-Φ12 of Danyal's seven recordings (mesqsim.real: the BVH and Motive readers, marker naming and following, "

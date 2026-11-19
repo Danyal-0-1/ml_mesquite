@@ -1346,3 +1346,51 @@ rather than reusing `mesqsim.conventions` (same conventions), because bit-level 
 **For Danyal.** mesquite-mocap is licensed GPL-3.0, and `mesqsim/twin/page.py` is a port of its page code (the
 fixtures are its outputs). Nothing is published while Step 3 stays local, but before this repository publishes Step
 3 the licence of that module needs a decision.
+
+## 2026-11-19 · S3-M3 (bodies, sites, sensor physics) · branch `s3-m3` (stacked on `s3-m2`; nothing pushed)
+
+**Previous milestone's commits.** `bc1299e`, `d0cf1f9` on `s3-m2` (local).
+
+**Plan stated.** SMPL+H with each sequence's shape and gender; pod and phone sites on the skin from the wear guide;
+surface frames, mountings, strap errors; ω and f from rotation and position splines; the four exact checks; the
+skin-against-bone angle and the smoothing's effect on |f| on AMASS walking.
+
+**Files added.** `mesqsim/twin/{smplh,sites,bodymotion,physics,body_report}.py`, `configs/twin.yaml`,
+`tests/test_twin_body.py`. **Changed.** `mesqsim/cli_step3.py` (`twin-body`), `mesqsim/validation.py` (41.1).
+
+**What was built.**
+- `smplh.py`: SMPL+H in numpy for a few vertices (shape, pose correctives, 52-joint forward kinematics, skinning
+  with each vertex's non-zero weights), all 156 pose values (Step 1's loader keeps 66). Against `smplx.lbs.lbs` on
+  `Walking_3_poses.npz`: vertices within 4.6e-9 m, joints within 8.3e-9 m.
+- `sites.py`: each site is a ray in the rest pose from a point on the bone (the wear guide's fractions: upper arm
+  0.41, forearm 0.39, thigh 0.69, shin 0.53) toward the front, the back or up; the vertex skinned to the segment that
+  lies outermost on it. Chosen once on the neutral template (`SITE_VERTEX`; SMPL+H numbers vertices alike in every
+  gender and shape). The head's lift (7 cm) and the feet's fraction (0.65) were set so the normal tilts as the wear
+  guide's pod face: head 11-13° up (guide 20°), feet 59-61° (guide 70°); thighs and shins tilt down 9-17° (guide
+  15°, 10°) unprompted. Mountings: chip +Z out of the skin everywhere; identity, except a half turn about the normal
+  on the thighs and shins (case up, bone down); the phone (b̂, t̂, −n̂). Step 1's `NOMINAL_MOUNT` points the leg
+  pods' x down the bone; the twin follows the wear guide.
+- `bodymotion.py`: per site, F · M, the position and the segment's rotation; 0.23 s for 27 s of AMASS at 120 Hz.
+- `physics.py`: `RotationSpline`'s first derivative is the body-frame rate (scipy 1.17.1; pinned by a test), so it
+  is ω directly; positions through a smoothing spline with λ = 1 / (h (2π f_c)⁴), whose measured response is
+  1 / (1 + (f / f_c)⁴) to three decimals.
+
+**Results** (`python -m mesqsim twin-body --files 12`: the first 12 walking files of the training split, 116 s, IMU
+at 225 Hz, 14 s). Skin against bone, median / P95 / max: head 0.38 / 1.17 / 1.86°, chest 1.18 / 4.22 / 6.30°,
+lower back 2.19 / 3.77 / 4.46°, arms and forearms 0.67-0.93 / 1.63-2.03 / 2.70-3.19°, hands 0.79-0.80 / 1.98-2.06 /
+4.70-6.13°, thighs 1.63-1.72 / 3.89-3.91 / 4.41-4.93°, shins 0.80-0.96 / 1.53-2.28 / 2.00-3.66°, feet 0.85-1.11 /
+1.77-2.03 / 2.49-2.80°, the phone's belt site 3.42 / 5.84 / 9.12°. Specific force |f|, P99: unsmoothed 28-73 m/s²
+(motion-capture jitter, twice differentiated), at 16 Hz 14-26, **at 8 Hz 13.7-24.8** (the feet highest), at 4 Hz
+12.8-21.9; medians stay at g (9.6-10.9 at 8 Hz). Most of the jitter lies above 16 Hz and most of the gait below 8 Hz,
+so 8 Hz stays (`assumption`). At 8 Hz no walking sample exceeds the accelerometer's ±4 g on any axis, and at most
+0.004 % the gyroscope's ±2000 °/s (the right hand). Check 41.1: still pod 4.4e-14, spin 3.0e-12 rad/s, free fall
+4.7e-8 m/s², circle 1.6e-6 relative, amplitude 0.500 at the cutoff.
+
+**A bug the tests caught.** The first smoothing formula put h on the wrong side (λ too small by h², so "8 Hz" did not
+smooth); the response test failed, and a first report claimed 0.2-2 % accelerometer saturation, which was that bug.
+The head's surface axis was first the neck-to-head bone, which turns with the neck: 6.3° median, 22° P95 against the
+head; it is now the head joint's own up.
+
+**Decisions.** The twin's parameters live in `configs/twin.yaml` (`twin:`, and an empty `learning:` for Danyal), so
+`configs/default.yaml` and the config hashes that name Step 1's and Step 2's runs are untouched. The IMU rate
+(225 Hz) is an assumption until S3-M4 reads the firmware.

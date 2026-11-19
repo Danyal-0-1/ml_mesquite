@@ -1,0 +1,30 @@
+# The Mesquite twin (Step 3 brief §4): its parameters, every one labelled like configs/default.yaml's
+# (datasheet | firmware | assumption | measured | fitted) with its source. A file of its own, so that Step 1's and
+# Step 2's runs keep the config hashes they are named after. The twin's truth lives in twin:; randomisation and
+# sweeps change only twin:. Nothing that estimates anything reads this file.
+
+twin:
+  body:
+    pod_frame:
+      value: surface
+      label: assumption
+      source: "Step 3 brief §4.2: pods on the skin, R_i = F_i · M_i · E_i (mesqsim/twin/sites.py); 'segment' is Step 1's s_i · m_i, the ablation"
+    strap_error_max_deg:
+      value: 20.0
+      label: assumption
+      source: "Step 3 brief §4.2: strap error E_i uniform within ±this per rotation-vector component; Step 1 used ±20° (session.mounting_max_deg)"
+  imu:
+    rate_hz:
+      value: 225.0
+      label: assumption
+      source: "the rate at which the twin evaluates the motion and runs the fusion; the DMP's internal sensor rate is not stated in the firmware (Pod_Watch_Binary.ino:482-490 sets only the Quat6 output divider)"
+  physics:
+    position_cutoff_hz:
+      value: 8.0
+      label: assumption
+      source: "Step 3 brief §4.3: smoothing-spline cutoff (half amplitude) before differentiating positions twice; effect on |f| over AMASS walking in WORKLOG S3-M3 (python -m mesqsim twin-body)"
+      sweep: [4.0, 8.0, 16.0]
+
+# Danyal's settings for the models Danyal writes (Step 3 brief §7): empty on purpose. The guide's recommendations
+# go here as comments, labelled assumption, when the guide is written.
+learning: {}
