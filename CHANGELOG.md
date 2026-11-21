@@ -8,6 +8,15 @@ milestone has a tag; [WORKLOG.md](WORKLOG.md) has the full entry for each one.
 
 ## [Unreleased]
 
+### Added
+- `docs/step_3/README.md`, `DATASET_CARD.md` (`twin_v1` after Gebru et al. 2021, with the specification a loader can
+  rely on) and `LEARN_THE_MODEL.md` (the course: a two-day track of lessons 1, 2 and 4-9 to a trained, scored TCN-P,
+  lessons 3 and 10-12 in brief), at Danyal's request.
+- `tests/test_step3_guide_examples.py`, which recomputes their worked examples (G1-G8, D1-D6).
+- `mesqsim.learn.targets.read_targets(group, start, end)`, so that a loader reads one window's targets only.
+- The guide's recommended settings, as comments labelled `assumption`, in the `learning:` section of
+  `configs/twin.yaml`. The twin's config hash is unchanged.
+
 ### Changed
 - Step 3 is published. On 2026-11-21 the person running the session had `main` and every tag pushed to GitHub.
   GitHub's default branch is now `main`, and its merged branches (`m5-results`, `s2-m0` … `s2-m8`) were deleted.

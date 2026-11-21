@@ -351,5 +351,16 @@ twin:
       source: "new: the page at 87d7c3b (the measured frame time and three ';' provenance lines, Nov 14); old: the Nov 13 page, which asserts 1/30 s and writes no ';' lines (the Nov 13 headers); both record every 33.0 ms (S3-M1's clock fit)"
 
 # Danyal's settings for the models Danyal writes (Step 3 brief §7): empty on purpose. The guide's recommendations
-# go here as comments, labelled assumption, when the guide is written.
+# (docs/step_3/LEARN_THE_MODEL.md, lessons 5 and 7) follow as comments, every one labelled assumption, until Danyal's
+# own runs settle them:
+#   window_steps: 576, loss_steps: 320    # assumption: the reference windows (mesqsim.learn.store.windows)
+#   batch_windows: 32                     # assumption: x 15 pods = 480 sequences per batch for TCN-P
+#   optimizer: AdamW, lr: 1.0e-3, weight_decay: 1.0e-2    # assumption (Loshchilov & Hutter 2019)
+#   cos_epochs: 2                         # assumption: 1 - cos first, then the von Mises NLL
+#   log_kappa_range: [-5.0, 12.0]         # assumption: the clamp of the log-concentration head
+#   grad_clip_norm: 1.0                   # assumption
+#   validation: {every_batches: 200, windows: 1000, patience: 3}    # assumption
+#   seeds: [0, 1, 2]                      # assumption: three seeds once the model works
+#   train_part: 4                         # assumption: the 1/4 part of the training subjects for a first model
+#   device: mps                           # assumption: this Mac's GPU for training; the CPU for the tests
 learning: {}

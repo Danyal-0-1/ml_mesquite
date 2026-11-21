@@ -15,6 +15,24 @@ def test_windows_tile_the_loss_regions_inside_the_session():
     assert len(store.windows(store.WINDOW_STEPS - 1)) == 0
 
 
+def test_read_targets_reads_a_window_or_the_whole_session():
+    """A loader reads one window's targets through targets.py (rule 8) without decompressing the whole session."""
+    import h5py
+
+    from mesqsim.learn.targets import read_targets
+
+    rng = np.random.default_rng(0)
+    arrays = {"y_delta": rng.normal(size=(700, 14)).astype(np.float32), "valid_delta": rng.random((700, 14)) > 0.2,
+              "y_eps": rng.normal(size=(700, 15)).astype(np.float32), "valid_eps": rng.random((700, 15)) > 0.2}
+    with h5py.File("targets.h5", "w", driver="core", backing_store=False) as h5:
+        g = h5.create_group("sessions/s")
+        for k, v in arrays.items():
+            g.create_dataset(k, data=v, chunks=(256,) + v.shape[1:], compression="gzip")
+        whole, part = read_targets(g), read_targets(g, 100, 676)
+    for k, v in arrays.items():
+        assert np.array_equal(whole[k], v) and np.array_equal(part[k], v[100:676]) and part[k].dtype == v.dtype
+
+
 def test_nested_parts_are_nested_and_sized():
     subjects = [("S", str(k)) for k in range(173)]
     parts = store.nested_parts(subjects, 1)

@@ -6,7 +6,9 @@ data never enter it. The specifications are the three briefs: [docs/brief/STEP1_
 [docs/brief/STEP3_BRIEF.md](docs/brief/STEP3_BRIEF.md) (done, `v3.0.0`). The rules for every work
 session are in [CLAUDE.md](CLAUDE.md). **New here? Read [docs/MUST_KNOW.md](docs/MUST_KNOW.md) first, then learn the
 project from [docs/explain/README.md](docs/explain/README.md)** (five files, from a mental picture to the theory). The
-two datasets are explained in [project_explanations/DATASETS.md](project_explanations/DATASETS.md). **Where is
+two datasets are explained in [project_explanations/DATASETS.md](project_explanations/DATASETS.md). **Writing the
+models?** Start with [docs/step_3/README.md](docs/step_3/README.md): the dataset card, then a two-day course to a
+trained, scored TCN-P. **Where is
 everything?** [REPOSITORY_GUIDE.md](REPOSITORY_GUIDE.md) maps every folder and file to the step that built it, and
 [CHANGELOG.md](CHANGELOG.md) lists the releases and their milestones.
 
@@ -162,6 +164,7 @@ The full map, file by file and step by step, is [REPOSITORY_GUIDE.md](REPOSITORY
 | [manifests/](manifests/) | name, size and SHA-256 of every data file | 1, 3 |
 | [docs/](docs/) | MUST_KNOW, PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1-3, analysis_plan_DRAFT, figures; `brief/` holds the three briefs | 1, 2, 3 |
 | [docs/explain/](docs/explain/README.md) | the explanation pipeline: MENTAL_PICTURE → PIPELINE_EXPLAINED → MATH_EXPLAINED → CODE_EXPLAINED → THEORY | 2 |
+| [docs/step_3/](docs/step_3/README.md) | Step 3's explanations: the dataset card of `twin_v1` and LEARN_THE_MODEL, the course for writing and training TCN-P | 3 |
 | [project_explanations/](project_explanations/DATASETS.md) | the two datasets (AMASS, DIODEM): what they are, how they were recorded, why they matter here | 2 |
 | [CHANGELOG.md](CHANGELOG.md), [WORKLOG.md](WORKLOG.md) | the releases; one entry per session or milestone (what changed, commands run, decisions) | all |
 | `data/`, `outputs/` | git-ignored; licensed data, recordings and generated runs never enter git | all |

@@ -123,10 +123,12 @@ Specification: [docs/brief/STEP3_BRIEF.md](docs/brief/STEP3_BRIEF.md). The repor
 | `configs/twin.yaml` | every twin parameter with its source and label, including the values `twin-calibrate` fitted |
 | `manifests/real_suit.csv`, `manifests/twin_v1.csv` | the recordings' and the dataset's files: path, size, SHA-256 |
 | `tools/page_golden/`, `tools/app_golden/` | run the real page code (Node) and the real app core (Swift) on scripted inputs, writing `tests/fixtures/` |
-| `tests/` | `test_real_readers.py`, `test_real_markers.py`, `test_real_recordings.py`, `test_real_stats.py`, `test_page_frame.py`, `test_page_twin.py`, `test_twin_body.py`, `test_twin_fusion.py`, `test_twin_wire.py`, `test_twin_phone.py`, `test_twin_session.py`, `test_twin_calibration.py`, `test_learn_features.py`, `test_learn_store.py`, `test_learn_curve.py`, `test_learn_rigid.py`, `test_model_kit.py`, `test_results_step3.py`, `test_through_page.py` |
+| `tests/` | `test_real_readers.py`, `test_real_markers.py`, `test_real_recordings.py`, `test_real_stats.py`, `test_page_frame.py`, `test_page_twin.py`, `test_twin_body.py`, `test_twin_fusion.py`, `test_twin_wire.py`, `test_twin_phone.py`, `test_twin_session.py`, `test_twin_calibration.py`, `test_learn_features.py`, `test_learn_store.py`, `test_learn_curve.py`, `test_learn_rigid.py`, `test_model_kit.py`, `test_results_step3.py`, `test_through_page.py`, `test_step3_guide_examples.py` (the worked examples of `docs/step_3/`) |
+| `docs/step_3/` | the explanations: [README.md](docs/step_3/README.md) (where to start), [DATASET_CARD.md](docs/step_3/DATASET_CARD.md) (`twin_v1` and what a loader can rely on), [LEARN_THE_MODEL.md](docs/step_3/LEARN_THE_MODEL.md) (the course: a two-day track to a trained, scored TCN-P) |
 
 Validation checks 40.1 to 53.1. Danyal writes the learned models in `mesqsim/learn/{loader,models,loss,train}.py`
-(not written yet); `tests/test_model_kit.py` tests them, and skips until they exist. The main commands:
+(not written yet), following [LEARN_THE_MODEL.md](docs/step_3/LEARN_THE_MODEL.md). `tests/test_model_kit.py` tests
+them, and skips until they exist. The main commands:
 
 ```bash
 python -m mesqsim real-stats                       # Φ1-Φ12 of the recordings ($MESQ_DATA_DIR/real_suit)
@@ -140,12 +142,12 @@ python -m mesqsim score-model --model <module>:<Class> --dataset twin_v1 --split
 python scripts/make_results_step3.py --workers 5 --page-sessions 12                    # docs/RESULTS_STEP3.md
 ```
 
-At Danyal's request, these Markdown parts of the brief are not written yet. Ask for them by name:
-`docs/step_3/` (`README.md`, `MENTAL_PICTURE.md`, `PIPELINE_EXPLAINED.md`, `MATH_EXPLAINED.md`, `CODE_EXPLAINED.md`,
-`THEORY.md`, `REFERENCES.md` with `references.bib`, `FIDELITY.md`, `DATASET_CARD.md`, `LEARN_THE_MODEL.md`,
-`MODEL_CARD_TEMPLATE.md`) and the Step 3 updates of `README.md`, `docs/SIMULATOR.md`, `docs/DATA.md`,
-`docs/PIPELINE.md`, `docs/MATH.md`, `docs/CODE.md`, `docs/MUST_KNOW.md` and `docs/analysis_plan_DRAFT.md`.
-`DATASET_CARD.md` and `LEARN_THE_MODEL.md` come first, because Danyal needs them before writing the loader.
+Written on 2026-11-21, at Danyal's request: `docs/step_3/`'s `README.md`, `DATASET_CARD.md` and `LEARN_THE_MODEL.md`.
+Still not written, at Danyal's earlier request (ask for them by name):
+- in `docs/step_3/`: `MENTAL_PICTURE.md`, `PIPELINE_EXPLAINED.md`, `MATH_EXPLAINED.md`, `CODE_EXPLAINED.md`,
+  `THEORY.md`, `REFERENCES.md` with `references.bib`, `FIDELITY.md` and `MODEL_CARD_TEMPLATE.md`;
+- the Step 3 updates of `README.md`, `docs/SIMULATOR.md`, `docs/DATA.md`, `docs/PIPELINE.md`, `docs/MATH.md`,
+  `docs/CODE.md`, `docs/MUST_KNOW.md` and `docs/analysis_plan_DRAFT.md`.
 
 ## 5. Files that every step extends
 
@@ -189,6 +191,7 @@ data file or any file over 5 MB is committed.
 | you want to | read or run |
 |---|---|
 | understand the project | [docs/MUST_KNOW.md](docs/MUST_KNOW.md), then [docs/explain/README.md](docs/explain/README.md) |
+| write and train the models | [docs/step_3/DATASET_CARD.md](docs/step_3/DATASET_CARD.md), then [docs/step_3/LEARN_THE_MODEL.md](docs/step_3/LEARN_THE_MODEL.md) |
 | run it from a fresh clone | the quickstart in [README.md](README.md) (Steps 1 and 2); Step 3's commands are in §4 above |
 | see the numbers | [RESULTS_STEP1.md](docs/RESULTS_STEP1.md), [RESULTS_STEP2.md](docs/RESULTS_STEP2.md), [RESULTS_STEP3.md](docs/RESULTS_STEP3.md), [VALIDATION.md](docs/VALIDATION.md) |
 | know where a parameter's value came from | `python -m mesqsim params`, and the source and label next to each value in `configs/` |

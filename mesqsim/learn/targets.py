@@ -33,6 +33,7 @@ def session_targets(labels_joints: pd.DataFrame, labels_steps: pd.DataFrame) -> 
             "y_eps": np.nan_to_num(eps).astype(np.float32), "valid_eps": np.isfinite(eps) & ~blend}  # fmt: skip
 
 
-def read_targets(group) -> dict:
-    """The targets of one stored session (an ``h5py`` group of the dataset, ``/sessions/<id>/``)."""
-    return {k: np.asarray(group[k]) for k in ("y_delta", "valid_delta", "y_eps", "valid_eps")}
+def read_targets(group, start: int | None = None, end: int | None = None) -> dict:
+    """The targets of one stored session (an ``h5py`` group of the dataset, ``/sessions/<id>/``), or of its steps
+    ``start`` to ``end`` only (end exclusive): a loader's window reads just its slice, from the chunks it needs."""
+    return {k: np.asarray(group[k][start:end]) for k in ("y_delta", "valid_delta", "y_eps", "valid_eps")}

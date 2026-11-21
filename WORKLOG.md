@@ -2274,3 +2274,55 @@ are absent (`checks.available()`), as in `tests/test_results_step3.py`.
 - With the data present: `pytest tests/test_through_page.py`, 2 passed.
 - As on GitHub, with `MESQ_DATA_DIR` and `MESQ_OUTPUT_DIR` set to empty folders: `ruff check .` is clean;
   `pytest` gives 387 passed and 75 skipped in 94 s; `python scripts/validate.py --quick` gives `VALIDATION: PASS`.
+
+## 2026-11-21 · Step 3's guide for the models: the dataset card and the course (the two-day track)
+
+**Request (the person running the session).** The Markdown files for making the model and writing its code, as
+offered in the previous answer: the dataset card and the course, in the two-day version. Lessons 1, 2 and 4-9 are in
+full, and lessons 3 and 10-12 in brief. The person did not say which course they are on now, or whether practice code
+from the brief's one-week plan exists, so the course covers both cases (its §0).
+
+**Files added.** `docs/step_3/README.md`, `docs/step_3/DATASET_CARD.md`, `docs/step_3/LEARN_THE_MODEL.md`,
+`tests/test_step3_guide_examples.py`. **Changed.**
+- `mesqsim/learn/targets.py`: `read_targets(group, start, end)`, with its test in `tests/test_learn_store.py`;
+- `configs/twin.yaml`: the `learning:` comments;
+- `tests/test_repo_guide.py`: now covers `docs/step_3/`; checks a test id or a line by its path; `PLANNED` lists
+  Danyal's four files;
+- `REPOSITORY_GUIDE.md`, `README.md` and `CHANGELOG.md`.
+
+**What was built.**
+- **The dataset card,** after Gebru et al. 2021:
+  - at a glance; the composition by split (D1-D3); the labels and the chain identity (D5);
+  - the loader's specification: files, the index's columns, every array with its units;
+  - the values to expect: an absent pod is zero all session; a lost pod keeps its last values; an invalid target is
+    stored as 0; ε can be valid one step before the phone's first message;
+  - how often each state occurs (D4), the orders, the codes, how to read it, what every input guarantees, the
+    windows, the splits and the parts (D6);
+  - uses, known limits and maintenance.
+- **The course:**
+  - setup, the four rules and the two-day track;
+  - each lesson gives "Study first" from the brief's resources, the idea with a picture, a worked example with real
+    numbers, the exercise, its test, hints and the usual mistakes. The numbers (G1-G8) come from `val_KIT_12_v0` of
+    the validation split and from the stored scores;
+  - self-check questions.
+  - It holds no finished loader, model, loss or training loop (brief §7.5), only interface snippets.
+- **Every worked example is recomputed** by `tests/test_step3_guide_examples.py`. Five need no data and run on
+  GitHub; nine read `twin_v1` and skip without it.
+- **`read_targets(group, start, end)`** reads one window's slice. A loader's targets still go through `targets.py`
+  (rule 8), without decompressing whole sessions.
+
+**Decisions** (all written in the course, and labelled `assumption` in `learning:`):
+- **One item, for TCN-P,** is a window with all 15 pods: `x` (15, 37, 576), `theta` (15, 576) and `mask` (15, 576).
+  The collate function flattens a batch to (15·B, …), which is the convention of the tests' batches.
+- **The 37 inputs** are the pod's 8, the phone's 8, the pod relative to the phone 6, and a one-hot of 15
+  (brief §7.2). One function builds them for both the loader and the wrapper.
+- **log κ** is clamped to [−5, 12] in the model or the wrapper, not in the loss, because the loss test goes to
+  κ = 10⁷.
+- **`cos_epochs` defaults to every epoch,** so the overfit test trains the mean only; real runs use 2.
+- **`uncertain`** is set where κ < 4.
+- **The epoch times are an estimate.** They scale one measured layer: `Conv1d(64, 64, 3)`, forward and backward, on
+  480 sequences of 592 steps, took 59.6 ms on the GPU and 198.6 ms on the CPU (Apple M2 Pro, torch 2.14.1).
+
+**Check.** `ruff check .` is clean. `pytest tests/test_step3_guide_examples.py` gives 14 passed with the data, and 5
+passed and 9 skipped without it. `tests/test_repo_guide.py` gives 13 passed. Adding comments to `learning:` leaves
+the twin config's hash at `5de4440cd537…`.
