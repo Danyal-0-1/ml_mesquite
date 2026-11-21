@@ -215,14 +215,14 @@ def page_section(df: pd.DataFrame, df_tpose: pd.DataFrame | None = None) -> str:
         out += ["The same sessions and slips, but the phone zeroed in the T-pose on the belt, as the procedure asks:",
                 "", page_table(df_tpose), ""]
     out += ["**Reading it.** Every correction adds the page's constant turn between the phone's frame and a pod's "
-            "(-90° for velvet's maps; without it the true ε leaves both shins about 90° off). Turned to the phone's "
-            "north (O2), all pods share one world, so the two shins agree with each other ('shins disagree'). The "
-            "drawing is right when, in that world, the wearer faced the page's forward at the T-pose, which the "
-            "phone's Zero in the T-pose arranges: then the true ε brings the shins close to the truth. Zeroed at "
-            "Start, in the hand, the phone's north is wherever the hand pointed, and every pod corrected to the phone "
-            "inherits it (Φ7 too): no correction relative to the phone fixes a phone zeroed away from the wearing "
-            "pose. RIGID+B1 turns all pods alike (B1's box registration carries no information when the pods boot in "
-            "the box), so it moves Φ7 and not Φ3.", ""]
+            "(-90° for velvet's maps, `PHONE_TO_POD_RAD`). Turned to the phone's north (O2), all pods share one "
+            "world, so the two shins agree with each other ('shins disagree'). The drawing is right when, in that "
+            "world, the wearer faced the page's forward at the T-pose, which the phone's Zero in the T-pose arranges: "
+            "then the true ε brings the shins close to the truth. Zeroed at Start, in the hand, the phone's north is "
+            "wherever the hand pointed, and every pod corrected to the phone inherits it (Φ7 too): no correction "
+            "relative to the phone fixes a phone zeroed away from the wearing pose. RIGID+B1 turns every pod by the "
+            "root link's estimate (B1's box registration carries no information when the pods boot in the box): the "
+            "legs keep their own norths, the drawing turns as a whole, and Φ3 and Φ7 both get worse.", ""]
     return "\n".join(out)
 
 
