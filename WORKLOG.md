@@ -1572,6 +1572,9 @@ checks 40.2 (the BVH in the page's loader), 43.2 (δ and ε from the tables), 46
 - A test assumed seed 3 had no slips; it draws "Zero at Start", which is right.
 - A test bounded the box-phase tilt by 1°; the accelerometer's assumed misalignment allows up to 1.7°.
 
+**Check.** `bash scripts/check_all.sh` at `5880e1d` (clean worktree), 2026-11-21 02:49 UTC, 361 s: `ruff` clean;
+`pytest` **403 passed**; validation **64 passed, 0 failed, 0 skipped of 64**.
+
 **Decisions.**
 - A session's body holds the program's first pose (a T-pose) from Start until the program begins; the pods are
   carried to it during the strapping.
