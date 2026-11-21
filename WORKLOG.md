@@ -2156,3 +2156,73 @@ first two to request are `DATASET_CARD.md` and `LEARN_THE_MODEL.md`, which Danya
 - **Through the page,** with `score-model --through-page`: the shins' Φ3 and Φ7 against the truth, as §8.3.
 - **Real data before any claim:** the next OptiTrack session (the protocol program, a marker triad per pod) is the
   only test that is not the twin's own; Step 4's numbers on the twin are a ceiling, not a result.
+
+## 2026-11-21 · The repository organised: one branch, every step labelled, release 3.0.0 · `main` (local)
+
+**Previous entry's commit.** `09da94f` (S3-M10, tag `step3`). **This one's.** `2625be6`, then this entry with the
+check (tag `v3.0.0`).
+
+**Request (the person running the session).** The work was spread over four working folders and nineteen local
+branches. The request was to organise the steps, delete the other branches so that everything sits on one branch,
+label each step clearly, write one Markdown file that shows where everything is step by step, and use an
+industry-standard layout and labels.
+
+**Plan stated.** Make `main` the only branch and this folder the only working copy. Label the steps with release tags
+and milestone tags. Add a changelog and a repository guide, with a test that keeps the guide true. Leave the modules
+where the briefs put them. Push nothing.
+
+**Git (local).**
+- `main` was fast-forwarded from `fc89dbb` (`step2`) to `09da94f` (`step3`). Every Step 3 commit is now on `main`
+  unchanged: no rebase, no force.
+- Three worktrees were removed; each held no changes apart from caches. They were `../ml_mesquite_s3` (on `s3-m10`),
+  `../ml_mesquite_s3_check` and `../ml_mesquite_check`, the last two detached check copies.
+- The local branches were deleted with `git branch -d`, which refuses an unmerged branch. They were `m5-results`
+  `9b06673`, `s2-m1` `63adaba`, `s2-m2` `72f3eb3`, `s2-m4` `f8a1911`, `s2-m6` `de719c2`, `s2-m7` `1f461f1`,
+  `s2-m8` `295bb47`, `s3-m0` `47af39b`, `s3-m1` `f0befde`, `s3-m2` `d0cf1f9`, `s3-m3` `0adda78`, `s3-m4` `ab1cbb4`,
+  `s3-m5` `4a03aeb`, `s3-m6` `eacf4a1`, `s3-m7` `913e98e`, `s3-m8` `ad813ea`, `s3-m9` `9e4a3c9` and `s3-m10`
+  `09da94f`. `git branch <name> <commit>` brings any one back.
+- Annotated tags were added:
+  - `step3-m0` … `step3-m10` on the Step 3 branch tips above;
+  - `step2-m0` (`9b06673`) and `step2-m8` (`fc89dbb`), the two Step 2 milestones that had no tag;
+  - the releases `v1.0.0` = `step1` and `v2.0.0` = `step2`, placed on the commits where those steps ended, and
+    `v3.0.0` on this entry's commit.
+- A local pre-push hook was added. `main` now carries Step 3, so pressing "Sync" in the editor would publish it. The
+  hook, `.git/hooks/pre-push` (not in the repository), refuses any push whose commits include Step 3 (rule 2).
+  `MESQ_ALLOW_STEP3_PUSH=1 git push …`, or deleting the hook, lifts the guard. It was tested on simulated pushes: it
+  refused `main` and `step3`, and allowed a `step2` commit and the deletion of a remote branch.
+
+**Files added.** `REPOSITORY_GUIDE.md`, `CHANGELOG.md`, `tests/test_repo_guide.py`. **Changed.**
+- `README.md`: the three steps, a table of releases and a layout table with steps.
+- `CLAUDE.md`: Step 3 is done; there is one branch; a milestone branch is deleted once merged; the tag and release
+  scheme.
+- `pyproject.toml` and `mesqsim/__init__.py`: version 3.0.0 and the description.
+- The docstrings of `mesqsim/{sim,data,real,twin,learn}/__init__.py` now name their step. The twin's docstring also
+  lost a stale "so far only `page_frame`".
+
+**Decisions.**
+- **The modules stay where they are.** The briefs, which are never edited, name the paths: `mesqsim/conventions.py`,
+  `mesqsim/twin/page_frame.py`, `mesqsim/learn/targets.py` and Danyal's planned
+  `mesqsim/learn/{loader,models,loss,train}.py`. The tests, the documents and the line links of `docs/explain/` point
+  at them too. The usual practice is to organise code by component and to mark the phases with releases, tags and a
+  changelog, and that is what was done here.
+- **The map comes from the history.** In `REPOSITORY_GUIDE.md`, each file's step is the step of the commit that added
+  it (`git log --diff-filter=A`, placed against `step1`, `step2` and `step3`).
+- **`tests/test_repo_guide.py`** checks three things in the README, the changelog and the guide: every link resolves,
+  with its anchor; every path in backticks resolves; every folder that holds tracked files, two levels deep, is named
+  in the guide. To test the test, a broken link, a missing path and a renamed folder were injected: 3 tests failed.
+  With the guide restored, all 7 passed.
+- **Semantic Versioning: one step is one major version.** `v1.0.0` and `v2.0.0` were placed retroactively, and their
+  `pyproject.toml` still reads 0.1.0.
+
+**On GitHub, untouched (Danyal's decisions).**
+- `origin/main` stays at `step2`. GitHub has the tags `step1`, `step2` and `step2-m1` … `step2-m7`.
+- The remote branches `m5-results` (still the repository's default branch), `s2-m0`, `s2-m1`, `s2-m2`, `s2-m4`,
+  `s2-m6`, `s2-m7` and `s2-m8` are all merged into `origin/main`. Deleting `m5-results` needs the default branch set to
+  `main` first.
+- Pushing Step 3 waits for the disclosure answer (rule 2).
+
+**Check.** `bash scripts/check_all.sh` ran at `2625be6` in a clean temporary worktree, since removed, and took
+775 s. ruff: `All checks passed!`. pytest: `452 passed, 10 skipped in 422.13s`, that is S3-M10's 445 plus the 7 of
+`tests/test_repo_guide.py`; the 10 skipped tests are Danyal's model tests, which wait for Danyal's code. Validation:
+70 of 70 checks pass. The new `docs/VALIDATION.md` differs from S3-M10's only in its header (run time and commit).
+This entry's commit changes only `WORKLOG.md` and that header.
