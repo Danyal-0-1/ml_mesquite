@@ -1702,16 +1702,18 @@ draws, the closest 20 kept, best distance 2.02, median 2.46; no session failed).
     make its −15°/min and +10°/min; 13-59-24 turns +1,432° net, and its shins drift the same way (+15, +13°/min).
   - A mirrored mounting turns one per-axis bias into opposite drifts: 13-41-17's are opposite, 13-59-24's and Nov 14's
     are not.
-  - A bias random walk reproduces the walking drift only from B_g ≈ 0.01-0.03°/s/√s (round 2's draws: the shins'
-    |Φ4| median 8.4°/min there, 2.9 below 0.01), where Nov 4's still pods hold 2 of 14 within 1.8° (12 of its 13
-    steady pods did): rest-bias estimation tracks a walk at rest, not in motion, and the two days disagree. Something acts only in motion (the shins' accelerations entering the tilt, vibration, temperature after
-    strapping); the fit cannot tell which, and the drift statistics stay outside the twin's predictive intervals.
+  - A bias random walk reproduces the walking drift only from B_g ≈ 0.01-0.03°/s/√s (round 2's draws: the shins' |Φ4|
+    median 8.4°/min there, 2.9 below 0.01), where Nov 4's still pods hold 2 of 14 within 1.8° (12 of its 13 steady pods
+    did): rest-bias estimation tracks a walk at rest, not in motion, and the two days disagree. Something acts only in
+    motion (the shins' accelerations entering the tilt, vibration, temperature after strapping); the fit cannot tell
+    which, and the drift statistics stay outside the twin's predictive intervals.
 - **Nov 4's one drifting pod.** The Head drifted −0.81°/min at rest (14.1° over 17.4 min) while the others held; the
   twin's rest-bias estimation holds every still pod, so that pod is beyond it.
-- **Nov 14's root (116 cm) and Φ7 (+64°)** are what the phone's Zero taken in the hand gives in the twin (a first
-  look this milestone: 113 cm and Φ7 −77° with the hand 0.31 m below the belt and turned 81°; the sign follows the
-  hand's turn); the fit's Zero-at-Start probability stays at its prior (median 0.75, 90 % 0.21-0.93). Danyal's answer in S3-M0 (Zero pressed in the T-pose) and this disagree: either it was
-  pressed before the phone reached the belt, or the app's Zero at Start stood.
+- **Nov 14's root (116 cm) and Φ7 (+64°)** are what the phone's Zero taken in the hand gives in the twin (a first look
+  this milestone: 113 cm and Φ7 −77° with the hand 0.31 m below the belt and turned 81°; the sign follows the hand's
+  turn); the fit's Zero-at-Start probability stays at its prior (median 0.75, 90 % 0.21-0.93). Danyal's answer in S3-M0
+  (Zero pressed in the T-pose) and this disagree: either it was pressed before the phone reached the belt, or the app's
+  Zero at Start stood.
 
 **Bugs the work caught.**
 - The first T-pose's posture error vanished in one frame at its end (15.2° in the right arm at 1.07 s): faded over the
@@ -1723,6 +1725,9 @@ draws, the closest 20 kept, best distance 2.02, median 2.46; no session failed).
   start ran down to one worker): `multiprocessing.Pool(maxtasksperchild=...)`.
 - Round 2's second start was killed with the Claude Code session that started it, an hour in, before its fit wrote
   anything: the runs now checkpoint every batch and run in their own process session.
+
+**Check.** `bash scripts/check_all.sh` at `2124a61` (clean worktree), 2026-11-21 18:05 UTC, 617 s: `ruff` clean;
+`pytest` **413 passed**; validation **65 passed, 0 failed, 0 skipped of 65**.
 
 **Decisions.**
 - The split of §5.4 as proposed (calibrate on Nov 4, 13-41-17, 13-59-24 and Nov 14; check on 13-42-39, 13-44-44 and
