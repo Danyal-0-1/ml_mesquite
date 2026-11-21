@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesqsim"
-version = "0.1.0"
-description = "Mesquite ML Step 1: suit simulator, Step 0 decoding shared with real recordings, baselines"
+version = "3.0.0"
+description = "Mesquite ML: suit simulator and baselines (Step 1), geometric estimator GEO (Step 2), Mesquite twin and model kit (Step 3)"
 requires-python = ">=3.11,<3.12"
 # Exact versions are pinned in requirements.txt (and requirements-lock.txt).
 dependencies = []

@@ -13,8 +13,12 @@ they/them). A collaborator or Danyal runs the sessions. Three briefs are the spe
 - [docs/brief/STEP3_BRIEF.md](docs/brief/STEP3_BRIEF.md): Step 3, the Mesquite twin, its training data and the model
   kit. **This is the current scope.**
 
-**Step 3 starts from `step2`** (option (a) of Step 3 brief §2.1, chosen on 2026-11-17: wait for Step 2). Step 2 was
-finished and tagged `step2` (`fc89dbb`) on 2026-11-18; S3-M0 is on branch `s3-m0`, and S3-M1 onward follows from it.
+**Step 3 started from `step2`** (option (a) of Step 3 brief §2.1, chosen on 2026-11-17: wait for Step 2) and is done:
+tag `step3` (`09da94f`, 2026-11-21). On 2026-11-21 the person running the session asked for one branch: `main` was
+fast-forwarded to `step3`, every other local branch and worktree was removed, each milestone kept a tag, and the
+releases were tagged `v1.0.0`, `v2.0.0` and `v3.0.0`. [REPOSITORY_GUIDE.md](REPOSITORY_GUIDE.md) maps every file to
+its step; [CHANGELOG.md](CHANGELOG.md) lists the releases. Local `main` is ahead of `origin/main` by Step 3, which stays
+local (rule 2); on Danyal's Mac a local pre-push hook (`.git/hooks/pre-push`, not in the repository) refuses to push it.
 
 ## Rules
 
@@ -38,8 +42,9 @@ finished and tagged `step2` (`fc89dbb`) on 2026-11-18; S3-M0 is on branch `s3-m0
 4. **Work in milestones** (Step 3 brief §9, as in Step 2). Before each, say in plain words what you will do. For each:
    create a branch `s3-m<n>` from `main`, implement, run `bash scripts/check_all.sh`, update `WORKLOG.md`, commit,
    push only as rule 2 allows, and open a pull request into `main` with what changed and the check output. Merge only
-   when the person running the session says Danyal approved. Never force-push `main`. After each, say what you did and
-   how you checked it.
+   when the person running the session says Danyal approved, then delete the milestone branch (its tag
+   `step<k>-m<n>` keeps the milestone): `main` is the only long-lived branch. Never force-push `main`. After each, say
+   what you did and how you checked it.
 5. **Never invent data, results or numbers.** Every number comes from a command that was run (name it) or a cited
    source. Every parameter in `configs/default.yaml` carries a source note and a label: `datasheet`, `firmware`,
    `assumption`, `measured` or `fitted`.
@@ -89,10 +94,14 @@ finished and tagged `step2` (`fc89dbb`) on 2026-11-18; S3-M0 is on branch `s3-m0
   environment is `.venv` (made with `uv`) and the data and outputs live next to the repository, in
   `../mesquite_work/data` and `../mesquite_work/outputs` (set `MESQ_DATA_DIR` and `MESQ_OUTPUT_DIR`).
 - Another session may be working in the main folder. Never switch branches, stage or commit in a worktree that
-  another session is using; work in your own `git worktree` (Step 3 so far: `../ml_mesquite_s3`).
+  another session is using; work in your own temporary `git worktree`, and remove it once its work is merged (since
+  2026-11-21 there is one folder, `ml_mesquite`, and one branch, `main`).
 - Stage files by explicit path (never `git add -A`): untracked local files may exist that must not be pushed.
 - Tags: `step1` = end of Step 1; `step2-m<n>` and `step3-m<n>` = each merged milestone (not `s2-m<n>` or `s3-m<n>`,
-  which are the branch names); `step2` and `step3` = end of each step.
+  which are the branch names); `step2` and `step3` = end of each step; `v<step>.0.0` = the release of each step
+  (Semantic Versioning: `v1.0.0` = `step1`, `v2.0.0` = `step2`, `v3.0.0` = Step 3 with the repository organised). When
+  a milestone adds a file or a folder, update `REPOSITORY_GUIDE.md`; when a step ends, add its release to
+  `CHANGELOG.md` and set the version in `pyproject.toml` and `mesqsim/__init__.py`.
 - Run the full check with `bash scripts/check_all.sh`.
 - Radians inside the code, degrees in reports; put the unit in the variable name (`_rad`, `_deg`, `_s`, `_ms`).
 - `labels*.parquet` is simulation truth. Step 0 and every deployable estimator must never read it.

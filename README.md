@@ -1,11 +1,14 @@
-# Mesquite ML: Step 1 (data, environment, simulator) and Step 2 (geometric estimator)
+# Mesquite ML: the suit simulator (Step 1), the geometric estimator (Step 2), the Mesquite twin and model kit (Step 3)
 
 Research repository for Danyal Khorami's Mesquite project. It is public by Danyal's choice (2026-11-12); licensed
-data never enter it. The specifications are [docs/brief/STEP1_BRIEF.md](docs/brief/STEP1_BRIEF.md) (done) and
-[docs/brief/STEP2_BRIEF.md](docs/brief/STEP2_BRIEF.md) (done, tag `step2`); the rules for every work session are in
-[CLAUDE.md](CLAUDE.md). **New here? Read [docs/MUST_KNOW.md](docs/MUST_KNOW.md) first, then learn the project from
-[docs/explain/README.md](docs/explain/README.md)** (five files, from a mental picture to the theory). The two
-datasets are explained in [project_explanations/DATASETS.md](project_explanations/DATASETS.md).
+data never enter it. The specifications are the three briefs: [docs/brief/STEP1_BRIEF.md](docs/brief/STEP1_BRIEF.md)
+(done, release `v1.0.0`), [docs/brief/STEP2_BRIEF.md](docs/brief/STEP2_BRIEF.md) (done, `v2.0.0`) and
+[docs/brief/STEP3_BRIEF.md](docs/brief/STEP3_BRIEF.md) (done, `v3.0.0`, kept local). The rules for every work
+session are in [CLAUDE.md](CLAUDE.md). **New here? Read [docs/MUST_KNOW.md](docs/MUST_KNOW.md) first, then learn the
+project from [docs/explain/README.md](docs/explain/README.md)** (five files, from a mental picture to the theory). The
+two datasets are explained in [project_explanations/DATASETS.md](project_explanations/DATASETS.md). **Where is
+everything?** [REPOSITORY_GUIDE.md](REPOSITORY_GUIDE.md) maps every folder and file to the step that built it, and
+[CHANGELOG.md](CHANGELOG.md) lists the releases and their milestones.
 
 ## The whole project in one picture
 
@@ -72,27 +75,20 @@ dataset (open; scripted download) and one YAML config. **What comes out:** for e
 table identical in schema to a real recording, a separate labels table, the decoded per-pod series, error tables
 for the baselines and the Step 2 estimators, and the two results documents.
 
-## Status
+## Releases and status
 
-| milestone | content | state |
-|---|---|---|
-| M1 | skeleton, environment, conventions, wire codec, CI | done on branch `m1-skeleton`; on GitHub through `s2-m0` |
-| M2 | data: AMASS/SMPL+H instructions, DIODEM download, manifests, loaders, mapping | done on branch `m2-data` except the AMASS-dependent checks, which wait for the AMASS download |
-| M3 | thin end-to-end slice (offsets only → frames → Step 0 → B0, O2) | done on branch `m3-slice` (synthetic motion; AMASS when downloaded) |
-| M4 | full simulator, configs, CLI | done on branch `m4-simulator` |
-| M5 | splits, dataset, baselines, first results | done on branch `m5-results`; work log written in S2-M0 |
-| M6 | complete documentation, report, tag `step1` | done in S2-M0 (branch `s2-m0`); **tag `step1`** at `9b06673` (2026-11-16) |
-| S2-M0 | close Step 1: M5 work log, M6, AMASS download and split, results on AMASS | done; merged by Danyal (pull request #1); `main` = `step1`; the split and analysis plan wait for his freeze |
-| S2-M1 | Step 2 estimator contract, common clock, pairs, rates, `geometry:` config, scorer integration | done on branch `s2-m1`; merged into `main` (pull request #2), tag `step2-m1` |
-| S2-M2, S2-M3 | hinge (GEO-K, axis identification, GEO-ID); 2-DoF constraint; range of motion with Ω fitted on AMASS train; GEO-ID facing from the knees | done on branch `s2-m2`; merged into `main` (one pull request for both), tags `step2-m2`, `step2-m3` |
-| S2-M4, S2-M5 | filter replay and the validation calibration (κ scale, model error, q, κ_hold); T-pose-tied knee identification; GEO-ID on DIODEM | done on branch `s2-m4`; merged into `main` (one pull request), tags `step2-m4`, `step2-m5` |
-| S2-M6 | the Step 2 results on AMASS test subjects and DIODEM ([docs/RESULTS_STEP2.md](docs/RESULTS_STEP2.md)); GEO-ID's tied knee-axis test relaxed and the calibration refitted on validation; the simulator's idle turns made the wearer's (shared by every pod) | done on branch `s2-m6`; merged into `main`, tag `step2-m6` |
-| S2-M7 | the explanation pipeline ([docs/explain/](docs/explain/README.md)) with its two tests | done on branch `s2-m7`; merged into `main`, tag `step2-m7` |
-| S2-M8 | documentation complete, the report (last [WORKLOG.md](WORKLOG.md) entry) | done on branch `s2-m8`; merged into `main`, **tag `step2`** |
+One branch, `main`; one release per step ([CHANGELOG.md](CHANGELOG.md) has every milestone, [WORKLOG.md](WORKLOG.md)
+every entry).
 
-**Tags.** `step1` marks the end of Step 1 (simulator, Step 0, baselines). Each Step 2 milestone is merged into
-`main` and tagged `step2-m1` … `step2-m7`; `step2` marks the end of Step 2. `git log --oneline step1..step2` lists the
-Step 2 work.
+| release | step | state | tags | results |
+|---|---|---|---|---|
+| `v1.0.0` | Step 1: data, environment, simulator, Step 0, baselines B0, B1, O1, O2 | done 2026-11-16; on GitHub | `step1` | [docs/RESULTS_STEP1.md](docs/RESULTS_STEP1.md) |
+| `v2.0.0` | Step 2: the geometric estimator (GEO-K, GEO-ID) and the explanation pipeline | done 2026-11-18; on GitHub (pull requests #1 to #7) | `step2`, `step2-m0` … `step2-m8` | [docs/RESULTS_STEP2.md](docs/RESULTS_STEP2.md) |
+| `v3.0.0` | Step 3: the Mesquite twin calibrated on Danyal's recordings, the training data `twin_v1`, the model kit, the numbers to beat | done 2026-11-21; **local only** (Danyal's answer of 2026-11-17) | `step3`, `step3-m0` … `step3-m10` | [docs/RESULTS_STEP3.md](docs/RESULTS_STEP3.md) |
+| next | Step 4: fusion of geometry and learning | not started; Danyal's learned models first | | |
+
+**Tags.** `v<step>.0.0` is a release; `step<k>` marks the end of step k; `step<k>-m<n>` marks one milestone.
+`git log --oneline step2..step3` lists Step 3's work; `git show step3-m7` shows one milestone.
 
 ## Quickstart: from a fresh clone to the Step 1 and Step 2 results
 
@@ -148,19 +144,24 @@ python -m mesqsim baselines --run <printed folder> --methods B0 B1 O1 O2 GEO-K G
 [docs/explain/README.md](docs/explain/README.md) (the explanation pipeline: start here to learn the project),
 [docs/PIPELINE.md](docs/PIPELINE.md) (every stage and file format), [docs/MATH.md](docs/MATH.md),
 [docs/RESULTS_STEP2.md](docs/RESULTS_STEP2.md), [docs/analysis_plan_DRAFT.md](docs/analysis_plan_DRAFT.md) (what
-will be tested, and how; for Danyal to freeze).
+will be tested, and how; for Danyal to freeze). Step 3's commands are in [REPOSITORY_GUIDE.md](REPOSITORY_GUIDE.md) §4.
 
 ## Where things are
 
-| path | what |
-|---|---|
-| [mesqsim/](mesqsim/) | the Python package: conventions, codec, body tree, correction, data loaders, simulator (`sim/`), Step 0, baselines, the Step 2 estimators (`estimators/`), fits, results, validation checks |
-| [tests/](tests/) | pytest suite; runs without licensed data |
-| [scripts/](scripts/) | `check_env.py`, `check_all.sh`, `validate.py`, `download_diodem.py`, `verify_amass.py`, `make_figures.py`, `make_results.py`, `make_results_step2.py` |
-| [manifests/](manifests/) | name, size and SHA-256 of every data file |
-| [docs/](docs/) | MUST_KNOW, PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1, RESULTS_STEP2, analysis_plan_DRAFT, figures; `brief/` holds both briefs |
-| [docs/explain/](docs/explain/README.md) | the explanation pipeline: MENTAL_PICTURE → PIPELINE_EXPLAINED → MATH_EXPLAINED → CODE_EXPLAINED → THEORY |
-| [project_explanations/](project_explanations/DATASETS.md) | the two datasets (AMASS, DIODEM): what they are, how they were recorded, why they matter here |
-| [configs/](configs/) | `default.yaml` (every parameter, labelled), `presets.yaml` |
-| [WORKLOG.md](WORKLOG.md) | one entry per session or milestone: what changed, commands run, decisions |
-| `data/`, `outputs/` | git-ignored; licensed data and generated runs never enter git |
+The full map, file by file and step by step, is [REPOSITORY_GUIDE.md](REPOSITORY_GUIDE.md).
+
+| path | what | step |
+|---|---|---|
+| [mesqsim/](mesqsim/) | the Python package: conventions, codec, body tree, Step 0, baselines, runs, results, validation checks | 1, 2, 3 |
+| [mesqsim/sim/](mesqsim/sim/), [mesqsim/data/](mesqsim/data/) | the suit simulator; AMASS and DIODEM access | 1 |
+| [mesqsim/estimators/](mesqsim/estimators/) | GEO, the geometric estimator | 2 |
+| [mesqsim/real/](mesqsim/real/), [mesqsim/twin/](mesqsim/twin/), [mesqsim/learn/](mesqsim/learn/) | Danyal's recordings; the Mesquite twin; the model kit and `twin_v1` | 3 |
+| [tests/](tests/) | the pytest suite; runs without licensed data | 1, 2, 3 |
+| [scripts/](scripts/), [tools/](tools/) | one-command entry points (checks, downloads, results); the golden-fixture makers | 1, 2, 3 |
+| [configs/](configs/) | `default.yaml` (simulator and GEO, every parameter labelled), `presets.yaml`, `twin.yaml` (the twin) | 1, 2, 3 |
+| [manifests/](manifests/) | name, size and SHA-256 of every data file | 1, 3 |
+| [docs/](docs/) | MUST_KNOW, PIPELINE, MATH, CODE, DATA, SIMULATOR, VALIDATION, RESULTS_STEP1-3, analysis_plan_DRAFT, figures; `brief/` holds the three briefs | 1, 2, 3 |
+| [docs/explain/](docs/explain/README.md) | the explanation pipeline: MENTAL_PICTURE → PIPELINE_EXPLAINED → MATH_EXPLAINED → CODE_EXPLAINED → THEORY | 2 |
+| [project_explanations/](project_explanations/DATASETS.md) | the two datasets (AMASS, DIODEM): what they are, how they were recorded, why they matter here | 2 |
+| [CHANGELOG.md](CHANGELOG.md), [WORKLOG.md](WORKLOG.md) | the releases; one entry per session or milestone (what changed, commands run, decisions) | all |
+| `data/`, `outputs/` | git-ignored; licensed data, recordings and generated runs never enter git | all |

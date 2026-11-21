@@ -1,5 +1,5 @@
-"""The Mesquite twin (Step 3 brief §4): bodies, sensors, fusion, wire, phone, procedure and the page twin.
+"""Step 3. The Mesquite twin (Step 3 brief §4): bodies, sensors, fusion, wire, phone, procedure and the page twin.
 
-So far only :mod:`mesqsim.twin.page_frame`, the one module that converts between the page's frames and the
-repository's (Step 3 brief rule 10).
+Its calibration against Danyal's recordings is :mod:`.calibration`; one session end to end is :mod:`.session`. The
+page's frames are converted to the repository's in one module, :mod:`.page_frame` (Step 3 brief rule 10).
 """
