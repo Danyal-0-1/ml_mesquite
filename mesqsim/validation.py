@@ -2019,3 +2019,66 @@ def _dataset_rules(quick: bool) -> CheckResult:
     if "twin_v1" not in r:
         parts.append("twin_v1 not generated here")
     return CheckResult("; ".join(parts), ok)
+
+
+@register(
+    "51.1",
+    "The model kit: C5, Zeros = B0, Cheat caught, the loss references, Danyal's tests skip cleanly (Step 3 brief §10, "
+    "item 12)",
+    "(a) C5: the short twin session's stored inputs (mesqsim.learn.features) against the same with every pod and the "
+    "phone turned by one heading of 0.9 rad; (b) the dummy Zeros through mesqsim.learn.scorer against the built-in B0 "
+    "on the tiny dataset's test split, every summary number and table cell; (c) Cheat on the same inputs with the "
+    "labels deleted; (d) SciPy's von Mises -log density against -κ cos d + log 2π + log i0e(κ) + κ at 7 cases up to "
+    "κ = 1e7; (e) tests/test_model_kit.py's tests of loader.py, models.py, loss.py and train.py, run by pytest.",
+    "A model is only as honest as its inputs and its scorer: an input that moved with a common heading, a scorer "
+    "that scored nothing as something, or a test that broke before Danyal's code exists would each mislead the "
+    "first trained model's numbers.",
+    "(a) within 1e-6 (float32 storage); (b) identical, causality 0; (c) Zeros unchanged, Cheat cannot run; (d) "
+    "within 1e-6 relative; (e) no failure (each skips until its module exists)",
+    "pytest tests/test_model_kit.py tests/test_learn_features.py",
+)
+def _model_kit(quick: bool) -> CheckResult:
+    from .learn.checks import c5_numbers, kit_numbers
+
+    k = kit_numbers()
+    c5 = c5_numbers()
+    dt = k["danyal_tests"]
+    tests_ok = k["danyal_tests_rc"] in (0, 5) and not dt.get("failed") and not dt.get("error")
+    absent = [m for m, there in k["danyal_modules"].items() if not there]
+    parts = [f"(d) loss references within {k['loss_rel_err']:.1e}",
+             f"(e) Danyal's tests: {dt or 'none collected'}; modules absent {absent}"]  # fmt: skip
+    ok = k["loss_rel_err"] < 1e-6 and tests_ok
+    if c5 is None or "zeros_equals_b0" not in k:
+        return CheckResult("; ".join(parts) + "; (a)-(c) " + _NEEDS_AMASS, None if ok else False)
+    c5_worst = max(c5[a] for a in ("x_pod", "x_joint", "x_phone", "x_pod_phone"))
+    ok &= (c5_worst < 1e-6 and c5["states_equal"] and k["zeros_is_model"] and k["zeros_equals_b0"]
+           and k["zeros_causality_rad"] == 0.0 and k["zeros_label_free"] and not k["cheat_label_free"])  # fmt: skip
+    return CheckResult(f"(a) {c5['steps']} steps, largest change {c5_worst:.1e} (x_pod {c5['x_pod']:.1e}, x_joint "
+                       f"{c5['x_joint']:.1e}, x_phone {c5['x_phone']:.1e}, x_pod_phone {c5['x_pod_phone']:.1e}), "
+                       f"states equal {c5['states_equal']}; (b) Zeros = B0 {k['zeros_equals_b0']} (median "
+                       f"{k['b0_median_deg']:.2f}°), causality {k['zeros_causality_rad']:.1e} rad; (c) Zeros "
+                       f"label-free {k['zeros_label_free']}, Cheat error {k['cheat_error_deg']:.2f}° with labels, runs "
+                       f"without them {k['cheat_label_free']}; " + "; ".join(parts), ok)
+
+
+@register(
+    "52.1",
+    "RIGID: the 7° example, exact recovery, blind about the vertical (Step 3 brief §10, item 13)",
+    "mesqsim.learn.rigid.rigid on (a) ω = (1, 0, 0) rad/s seen by HipsAlt (ψ_h = 12°) and the phone (ψ_ph = 5°); (b) "
+    "20 random constant world rates, starting orientations and norths, noise-free; (c) a rotation about the vertical "
+    "only.",
+    "RIGID links the phone to HipsAlt for the RIGID + B1 chain and for TCN-P-chain; its closed form must be exact "
+    "where the geometry is, and say 'no information' where it is not.",
+    "(a) C = 0.992546, S = 0.121869, ε̂ = 7.000°; (b) within 1e-9 rad, vertical rates equal; (c) κ = 0",
+    "pytest tests/test_learn_rigid.py",
+)
+def _rigid(quick: bool) -> CheckResult:
+    from .learn.checks import rigid_numbers
+
+    r = rigid_numbers()
+    ok = (abs(r["seven_deg"] - 7.0) < 1e-9 and round(r["C"], 6) == 0.992546 and round(r["S"], 6) == 0.121869
+          and r["random_max_err_rad"] < 1e-9 and r["random_vertical_rms"] < 1e-9
+          and r["vertical_only_kappa"] == 0.0)  # fmt: skip
+    return CheckResult(f"(a) C {r['C']:.6f}, S {r['S']:.6f}, ε̂ {r['seven_deg']:.9f}°; (b) worst "
+                       f"{r['random_max_err_rad']:.1e} rad, vertical RMS {r['random_vertical_rms']:.1e}; (c) κ "
+                       f"{r['vertical_only_kappa']}", ok)

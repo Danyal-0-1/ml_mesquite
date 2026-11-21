@@ -265,6 +265,59 @@ def cmd_verify_dataset(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_score_model(args) -> int:
+    import platform
+
+    from .learn.scorer import cpu_name, load_model, score
+
+    root = output_dir() / "datasets" / args.dataset
+    if not (root / "index.parquet").is_file():
+        print(f"no dataset at {root}: python -m mesqsim twin-dataset --name {args.dataset} ...")
+        return 1
+    if args.through_page:
+        from .learn.through_page import score_through_page
+
+        return score_through_page(args.model, args.split, args.max_sessions, args.dataset)
+    model = args.model if args.model in ("B0", "O2") else load_model(args.model)
+    r = score(model, root, args.split, args.max_sessions, causal_steps=args.causal_steps)
+    name = args.model.replace(":", "-").replace("/", "-")
+    out = output_dir() / "scores" / f"{name}__{args.dataset}__{args.split}"
+    out.mkdir(parents=True, exist_ok=True)
+    for key in ("table", "derived_joint_table", "reliability"):
+        if key in r:
+            r[key].to_csv(out / f"{key}.csv", index=False)
+    summ = r["summary"] | {"model": args.model, "dataset": args.dataset, "cpu": cpu_name(),
+                           "python": platform.python_version()}  # fmt: skip
+    (out / "summary.json").write_text(json.dumps(summ, indent=1), encoding="utf-8")
+    print(f"{args.model} on {args.dataset}/{args.split}: {summ['steps']:,} steps; |error| median "
+          f"{summ['median_deg']:.2f}°, mean {summ['mean_deg']:.2f}°, P95 {summ['p95_deg']:.2f}°")
+    if "derived_joint_median_deg" in summ:
+        print(f"  on the joints (δ̂ = ε̂_c - ε̂_p): median {summ['derived_joint_median_deg']:.2f}°")
+    t = r["table"]
+    types = t[t["unit"].str.startswith("type:")]
+    if len(types):
+        print("  by joint type: " + ", ".join(f"{u[5:]} {m:.2f}°" for u, m in zip(types["unit"], types["median_deg"],
+                                                                               strict=True)))  # fmt: skip
+    if summ.get("seconds_per_step") is not None:
+        print(f"  {1e6 * summ['seconds_per_step']:.1f} µs per 32 Hz step on {summ['cpu']}; causality error "
+              f"{summ['causality_error_rad']:.1e} rad")
+    rel = r["reliability"].set_index("nominal")["empirical"]
+    sel = ", ".join(f"{k} {v:.2f}°" for k, v in summ["selective_median_deg"].items())
+    print(f"  coverage: 68 % interval {100 * rel[0.68]:.1f} %, 95 % interval {100 * rel[0.95]:.1f} % (κ = 0 claims a "
+          f"uniform error); median of the most confident steps kept: {sel}")
+    geo = output_dir() / "results_step3" / f"baselines_{args.split}.csv"
+    if geo.is_file() and len(types) and args.model not in ("B0", "O2"):  # gate G3 (§8.6): ahead of GEO-ID anywhere?
+        import pandas as pd
+
+        g = pd.read_csv(geo)
+        g = g[(g["method"] == "GEO-ID") & g["unit"].str.startswith("type:")].set_index("unit")["median_deg"]
+        ahead = [u[5:] for u, m in zip(types["unit"], types["median_deg"], strict=True) if u in g and m < g[u]]
+        print(f"  gate G3: ahead of GEO-ID at {ahead or 'no joint type'} (GEO-ID: "
+              + ", ".join(f"{u[5:]} {v:.2f}°" for u, v in g.items()) + ")")
+    print(f"wrote {out}")
+    return 0
+
+
 def add_parsers(sub) -> None:
     """Add Step 3's subcommands to the ``python -m mesqsim`` parser."""
     rs = sub.add_parser("real-stats", help="Φ1-Φ12 of the recordings against Step 3 brief §5.3")
@@ -310,3 +363,11 @@ def add_parsers(sub) -> None:
     vd.add_argument("--name", default="twin_v1")
     vd.add_argument("--recompute", type=int, default=1, help="simulate this many sessions again and compare")
     vd.set_defaults(fn=cmd_verify_dataset)
+    sm = sub.add_parser("score-model", help="score a model (module:Class, or B0 / O2) on a dataset split (S3-M8)")
+    sm.add_argument("--model", required=True, help="module:Class meeting mesqsim.learn.contract, or B0 or O2")
+    sm.add_argument("--dataset", default="twin_v1")
+    sm.add_argument("--split", default="val", choices=("train", "val", "test"))
+    sm.add_argument("--max-sessions", type=int, help="the first sessions of the split only")
+    sm.add_argument("--causal-steps", type=int, default=3, help="steps per session checked for causality")
+    sm.add_argument("--through-page", action="store_true", help="the page-level test of Step 3 brief §8.3")
+    sm.set_defaults(fn=cmd_score_model)
