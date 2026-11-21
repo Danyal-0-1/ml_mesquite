@@ -30,5 +30,6 @@ markers = [
     "diodem: needs the DIODEM download (skips when absent)",
     "real: needs Danyal's recordings in $MESQ_DATA_DIR/real_suit (skips when absent)",
     "node: needs Node.js for the page golden test (skips when absent; fixtures cover the Python side)",
+    "swift: needs a Swift toolchain for the phone app's golden test (skips when absent; a fixture covers the port)",
     "slow: Monte Carlo or end-to-end checks that take more than a few seconds",
 ]

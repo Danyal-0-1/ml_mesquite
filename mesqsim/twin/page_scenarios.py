@@ -11,6 +11,8 @@ are simple on purpose; the test is that the page twin draws what the page draws,
 * ``tpose_leg_swing``: a T-pose, Set T-pose at 1.0 s, then the left thigh swings ±30° and the left knee bends.
 * ``turn_phone_moving``: a T-pose, then the whole body turns 90° about the vertical while the phone walks 1 m.
 * ``hipsalt_silent``: the pelvis sways; HipsAlt sends nothing from 2.0 s to 4.0 s, so the phone drives the hips.
+* ``phone_zero_guard``: the phone sways about its Zero point with positions rounded plainly to 1 mm, so many contain
+  an exact 0 (or -0), and py is 0 for 0.2 s: the page's zero guard (Step 3 brief §10, item 6).
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ SCENARIOS = {
     "tpose_leg_swing": (3.5, 1.0, 1.1, 3.4),
     "turn_phone_moving": (3.5, 0.8, 0.9, 3.4),
     "hipsalt_silent": (4.6, 0.8, 0.9, 4.5),
+    "phone_zero_guard": (3.0, 0.8, 0.9, 2.9),
 }
 
 
@@ -70,6 +73,13 @@ def _phone(scenario: str, t: float) -> tuple[np.ndarray, np.ndarray]:
         pos = pos + np.array([0.02 * np.sin(t), 0.0, -0.1 * (t - 1.0)])
     elif scenario == "tpose_leg_swing":
         pos = pos + np.array([0.0, 0.005 * np.sin(3 * t), 0.0])
+    elif scenario == "phone_zero_guard":
+        # positions as plain rounding to 1 mm would send them around the Zero point: many are exactly 0 or -0, and
+        # py is 0 for 0.2 s; the page skips such a position (js/custom_icm.js:931), the app nudges it (MATH.md §5.3)
+        yaw = np.deg2rad(10.0) * np.sin(2 * np.pi * 0.5 * t)
+        raw = np.array([0.003 * np.sin(2 * np.pi * 0.7 * t), 0.0 if 1.5 <= t < 1.7 else 1.0,
+                        -0.002 * np.cos(2 * np.pi * 0.4 * t)])
+        pos = np.round(raw, 3)
     q = np.array([0.0, np.sin(yaw / 2), 0.0, np.cos(yaw / 2)])  # about ARKit's +Y
     return q, pos
 

@@ -1609,8 +1609,9 @@ def _results_repro(quick: bool) -> CheckResult:
 @register(
     "40.1",
     "The page twin draws what the page draws (Step 3 brief §4.10)",
-    "Replay the six golden scenarios (a T-pose then a leg swing; a turn while the phone moves; HipsAlt silent for "
-    "2 s; each in the velvet and smooth trees) through mesqsim/twin/page.py and compare every drawn bone quaternion "
+    "Replay the eight golden scenarios (a T-pose then a leg swing; a turn while the phone moves; HipsAlt silent for "
+    "2 s; the phone's positions holding exact zeros; each in the velvet and smooth trees) through "
+    "mesqsim/twin/page.py and compare every drawn bone quaternion "
     "and hips position after each message, and every number of the recorded BVH, with what js/custom_icm.js and "
     "js/bvh_converter.js wrote when run unmodified in Node (tools/page_golden/run.mjs, three.js r157, the avatar "
     "glbs/scene2.glb, mesquite-mocap 87d7c3b).",
@@ -1675,6 +1676,112 @@ def _twin_physics(quick: bool) -> CheckResult:
     ok = e_a < 1e-9 and e_b < 1e-6 and e_c < 1e-6 and e_d < 1e-4 and abs(amp - 0.5) < 0.05
     return CheckResult(f"(a) {e_a:.1e}; (b) {e_b:.1e} rad/s; (c) {e_c:.1e} m/s²; (d) {e_d:.1e} relative; "
                        f"(e) amplitude {amp:.3f} at the cutoff", ok)
+
+
+@register(
+    "42.1",
+    "The chip's fusion in the loop meets its analytic expectations (Step 3 brief §4.5)",
+    "VQF six-axis and Mahony at 55 Hz, their own bias estimation off, fed ideal samples (mesqsim.twin.sensors: the "
+    "mean rate over each interval, gravity rotated in): (a) a pod turning about every axis, no sensor error; (b) a "
+    "pod lying flat turning three times, a bias of 0.5 °/s on its vertical axis, 60 s; (c) the same turns with a 1 % "
+    "scale error on that axis; (d) Step 1's simulator (its default config, η = 0) on synthetic:walk:10, its reports "
+    "caught before the int16 quantisation and put through the twin's twist rule.",
+    "The twin replaces Step 1's analytic heading model by real filters; their heading must still follow the rules "
+    "the analysis rests on, with the signs q = Y(-ψ) R fixes: a bias b gives ψ = -b t, a scale error k over a turn Θ "
+    "gives ψ = -k Θ (Step 1's b_1 = -b, k_1 = -k), and no error gives a constant ψ.",
+    "(a) ψ constant within 1e-6°; (b) ψ(t) = -b t within 1 %; (c) ψ = -k · 3 · 360° within 1 %; (d) Step 1's ψ "
+    "within 1e-12 rad",
+    "pytest tests/test_twin_fusion.py",
+)
+def _twin_fusion(quick: bool) -> CheckResult:
+    from .twin.checks import analytic_equals_step1, fusion_numbers
+
+    f = fusion_numbers()
+    n_pods, worst = analytic_equals_step1()
+    ok = n_pods == 15 and worst < 1e-12
+    parts = []
+    for name, r in f.items():
+        ok &= r["psi_range_deg"] < 1e-6 and r["bias_rel_err"] < 0.01 and r["scale_rel_err"] < 0.01
+        parts.append(f"{name}: (a) range {r['psi_range_deg']:.1e}°, tilt {r['tilt_max_deg']:.1e}°; (b) "
+                     f"{r['bias_psi_end_deg']:.3f}° against {r['bias_expected_deg']:.3f}° ({r['bias_rel_err']:.1e}); "
+                     f"(c) {r['scale_psi_deg']:.3f}° against {r['scale_expected_deg']:.1f}° "
+                     f"({r['scale_rel_err']:.1e})")
+    return CheckResult("; ".join(parts) + f"; (d) {n_pods} pods, worst {worst:.1e} rad", ok)
+
+
+@register(
+    "43.1",
+    "The heading labels: one twist rule (Step 3 brief §4.5, §4.11)",
+    "mesqsim.twin.labels: ψ = -wrap(2 atan2(E_z, E_w)) of E = q R⁻¹ on the brief's hand check E = Y(-12°); on "
+    "q = Y(-ψ) R for 1,000 random R and ψ; and on E = S T and E = T S for 1,000 random swings S about horizontal "
+    "axes and twists T. The δ and ε tables are recomputed from ψ once the twin writes sessions (S3-M5).",
+    "Every pod's and the phone's heading label is this rule; a sign or order slip would move every δ and ε.",
+    "ψ = 12° exactly; ψ recovered within 1e-12 rad and no tilt; the split order-free within 1e-12 rad",
+    "pytest tests/test_twin_fusion.py -k 'twist or swing'",
+)
+def _twin_labels(quick: bool) -> CheckResult:
+    from .twin.checks import label_numbers
+
+    r = label_numbers()
+    ok = (abs(r["hand_deg"] - 12.0) < 1e-12 and r["recover_max_rad"] < 1e-12 and r["recover_tilt_max_rad"] < 1e-7
+          and r["order_max_rad"] < 1e-12 and r["swing_angle_max_err_rad"] < 1e-7)  # fmt: skip
+    return CheckResult(f"hand check {r['hand_deg']:.12f}°; ψ recovered within {r['recover_max_rad']:.1e} rad (tilt "
+                       f"{r['recover_tilt_max_rad']:.1e}); both orders within {r['order_max_rad']:.1e} rad, the "
+                       f"swing's angle within {r['swing_angle_max_err_rad']:.1e} rad", ok)
+
+
+@register(
+    "44.1",
+    "The wire, both suits (Step 3 brief §4.6)",
+    "Step 1's golden frame (id 2, batt 87, q (0.5, -0.5, 0.25, 0.75), count 0x1234, ms_lo 0xABCD) through "
+    "mesqsim.twin.wire, and the message the page's parser makes of it; the old dongle's JSON line at 2-6 decimals "
+    "for 500 random reports each, parsed back. Nov 4's exact-repeat share with the fitted json_decimals is added "
+    "when S3-M6 fits them.",
+    "The page draws what arrives: the twin's frames must be the pod's bytes and the old suit's lines the dongle's "
+    "text, or every statistic of the page twin inherits the difference.",
+    "the golden bytes and message exactly; every JSON number within half a step of the float32 report",
+    "pytest tests/test_twin_wire.py tests/test_codec.py -k golden",
+)
+def _twin_wire(quick: bool) -> CheckResult:
+    from .twin.checks import wire_numbers
+
+    r = wire_numbers()
+    worst = r["json_worst_over_half_step"]
+    ok = r["golden_ok"] and r["message_ok"] and max(worst.values()) <= 1.0 + 1e-9
+    return CheckResult(f"golden frame {r['golden_hex']} ({'equal' if r['golden_ok'] else 'DIFFERENT'}), parsed "
+                       f"message {'equal' if r['message_ok'] else 'DIFFERENT'}; JSON worst error / half step: "
+                       + ", ".join(f"{d} decimals {v:.3f}" for d, v in worst.items()), ok)
+
+
+@register(
+    "45.1",
+    "The phone app as its Swift code, 95 bytes, and the page's zero guard (Step 3 brief §4.7)",
+    "mesqsim.twin.phone_app against tests/fixtures/app_golden (the app's unmodified Core/*.swift at mesquite-mocap "
+    "87d7c3b, compiled by tools/app_golden): 1,260 pipeline frames, 2,110 encoded poses, 410 matrix conversions, "
+    "4 lever-arm fits. Then 10,000 uniformly random poses (boxes of ±5, ±50, ±500 m, and orientation only) through "
+    "the port's encoder; the nudged zero; and the zero-guard scenarios of the page golden test replayed through "
+    "the page twin.",
+    "The phone drives the drawn root; the twin's messages must be the app's to the byte, never exceed the hub's "
+    "95-byte record, and meet the page's habit of dropping a position that holds an exact 0.",
+    "no difference from Swift (0 ulps); no message over 95 bytes; 0.0004, -0.0004, 0, -0 sent as 0.001, -0.001, "
+    "0.001, 0.001; the hips never move on a position with a 0, as on the page (1e-5)",
+    "pytest tests/test_twin_phone.py tests/test_page_twin.py -k zero",
+)
+def _twin_phone(quick: bool) -> CheckResult:
+    from .twin.checks import phone_numbers
+
+    r = phone_numbers()
+    p = r["port"]
+    port_ok = p["max_ulps"] == 0 and not (p["text_diffs"] or p["encode_diffs"] or p["column_diffs"]
+                                          or p["lever_diffs"])  # fmt: skip
+    guard_ok = all(g["held"] and g["diff"] <= 1e-5 for g in r["guard"])
+    ok = port_ok and r["longest_bytes"] <= 95 and r["nudged"] == ["0.001", "-0.001", "0.001", "0.001"] and guard_ok
+    g = "; ".join(f"{x['tree']}: {x['zero_positions']} of {x['messages']} positions with a 0, hips held "
+                  f"{x['held']}, largest difference from the page {x['diff']:.1e}" for x in r["guard"])
+    return CheckResult(f"port vs Swift: {p['rows']} frames, {p['encode']} encodes, {p['columns']} conversions, "
+                       f"{p['lever_cases']} lever fits, {p['text_diffs'] + p['encode_diffs'] + p['lever_diffs']} "
+                       f"differences, {p['max_ulps']} ulps; {r['random_poses']} random poses, longest "
+                       f"{r['longest_bytes']} bytes; nudged {r['nudged']}; {g}", ok)
 
 
 @register(

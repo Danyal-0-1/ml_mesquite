@@ -14,16 +14,209 @@ twin:
       label: assumption
       source: "Step 3 brief §4.2: strap error E_i uniform within ±this per rotation-vector component; Step 1 used ±20° (session.mounting_max_deg)"
   imu:
-    rate_hz:
-      value: 225.0
-      label: assumption
-      source: "the rate at which the twin evaluates the motion and runs the fusion; the DMP's internal sensor rate is not stated in the firmware (Pod_Watch_Binary.ino:482-490 sets only the Quat6 output divider)"
+    oversample:
+      value: 1
+      label: firmware
+      source: "the fusion runs at oversample × the pod's own chip rate (configs/default.yaml timing.chip_rate_hz, 50.1-60 Hz) and reports every oversample-th step, at the chip's sample times. 1: Pod_Watch_Binary.ino:482-490 asks for one Quat6 per DMP cycle (ODR divider 0) and records about 55 Hz measured in Phase 1 for this initialisation, so the DMP fuses at the rate it outputs; how it integrates within a cycle is not documented, hence the sweep"
+      sweep: [1, 4]
   physics:
     position_cutoff_hz:
       value: 8.0
       label: assumption
       source: "Step 3 brief §4.3: smoothing-spline cutoff (half amplitude) before differentiating positions twice; effect on |f| over AMASS walking in WORKLOG S3-M3 (python -m mesqsim twin-body)"
       sweep: [4.0, 8.0, 16.0]
+  sensors:
+    # Step 3 brief §4.4: ω̃ = (I + S_g) A_g ω + b_g(t) + n_g, f̃ = (I + S_a) A_a f + b_a + n_a (mesqsim/twin/sensors.py).
+    # DS-000189 rev 1.3 could not be fetched in Step 3 (WORKLOG S3-M3); only the two values the Step 1 brief quoted from
+    # it are labelled datasheet.
+    gyro_noise_deg_s_sqrt_hz:
+      value: 0.015
+      label: datasheet
+      source: "N_g: ICM-20948 DS-000189 rev 1.3 (Tables 1 and 5) as quoted by the Step 1 brief §4.3 (configs/default.yaml error_model.arw_deg_per_sqrt_s); white, σ per sample = N_g √(rate)"
+    gyro_scale_max:
+      value: 0.015
+      label: datasheet
+      source: "S_g: each axis uniform within ±this; DS-000189 rev 1.3 (Tables 1 and 5) as quoted by the Step 1 brief §4.3 (configs/default.yaml error_model.scale_factor_max)"
+    gyro_misalign_max_deg:
+      value: 1.0
+      label: assumption
+      source: "A_g = Exp(a), each component of a uniform within ±this: of the size of a consumer MEMS part's cross-axis sensitivity, not read from DS-000189"
+    gyro_bias_sigma_deg_per_min:
+      value: 0.2
+      label: assumption
+      source: "b_g,0, the residual bias after the chip's own calibration: each axis ~ N(0, σ). Step 1's heading-drift spread (configs/default.yaml error_model.drift_sigma_deg_per_min) applied per axis until S3-M6 fits it (Step 3 brief §5.5)"
+      sweep: [0.05, 0.2, 1.0, 2.0]
+    gyro_bias_walk_deg_s_sqrt_s:
+      value: 0.0
+      label: assumption
+      source: "B_g, the density of b_g's random walk ((°/s)/√s): none until S3-M6 fits it (Step 3 brief §5.5)"
+      sweep: [0.0, 1.0e-4, 1.0e-3]
+    accel_noise_ug_sqrt_hz:
+      value: 200.0
+      label: assumption
+      source: "N_a: of the order of consumer MEMS accelerometers, not read from DS-000189 (replace with its Table 2 value when the PDF is available); filtered by the fusion's tilt time constant, it moves tilt by hundredths of a degree"
+    accel_scale_max:
+      value: 0.01
+      label: assumption
+      source: "S_a: each axis uniform within ±this; an order of magnitude, not read from DS-000189"
+    accel_misalign_max_deg:
+      value: 1.0
+      label: assumption
+      source: "A_a = Exp(a), as A_g"
+    accel_bias_max_m_s2:
+      value: 0.05
+      label: assumption
+      source: "b_a: each axis uniform within ±this (5 mg): a residual after the chip's calibration; a bias b tilts the fused gravity by about b / g (0.3° here)"
+    gyro_range_deg_s:
+      value: 2000.0
+      label: assumption
+      source: "the gyroscope's full scale under the DMP initialisation the firmware calls (Pod_Watch_Binary.ino:465, SparkFun's initializeDMP, a library not pinned here); readings clip at ±this"
+    accel_range_g:
+      value: 4.0
+      label: assumption
+      source: "the accelerometer's full scale: Danyal's bench-test note reads 1 g as +8192 counts, which is ±4 g on 16 bits (WORKLOG S3-M0); readings clip at ±this"
+    adc_bits:
+      value: 16
+      label: assumption
+      source: "signed samples of this many bits over each full scale (8192 counts per g at ±4 g is 2¹⁵ / 4); each axis is rounded to its step"
+  fusion:
+    mode:
+      value: vqf6d
+      label: assumption
+      source: "Step 3 brief §4.5. The DMP's Game Rotation Vector is closed; VQF in six-axis mode (Laidig and Seel 2023, the pinned vqf package) stands in for it. analytic: Step 1's model unchanged; mahony: a second filter, so no result hangs on one"
+    vqf_tau_acc_s:
+      value: 3.0
+      label: assumption
+      source: "VQF's tilt-correction time constant: the vqf package's default (VQFParams.tauAcc); fitted in S3-M6 (Step 3 brief §5.5)"
+      sweep: [1.0, 3.0, 10.0]
+    vqf_rest_bias:
+      value: true
+      label: assumption
+      source: "VQF's rest bias estimation (the package default): stands in for the chip's own gyroscope calibration, after which b_g,0 is the residual"
+    vqf_motion_bias:
+      value: true
+      label: assumption
+      source: "VQF's motion bias estimation (the package default); in six-axis mode it sees only the horizontal components"
+    mahony_kp:
+      value: 0.3333333333333333
+      label: assumption
+      source: "Mahony et al. 2008's proportional gain on the cross-product error, 1/s: 1 / vqf_tau_acc_s, so both filters correct tilt on the same time scale"
+    mahony_ki:
+      value: 0.0033333333333333335
+      label: assumption
+      source: "Mahony's integral gain (the bias estimate), 1/s²: mahony_kp / 100, so the bias estimate's time constant kp / ki is 100 s, VQF's bias forgetting time (VQFParams.biasForgettingTime). kp / 10 let walking's persistent acceleration error build a false bias of order 1 °/s: up to 40° of heading in 27 s of AMASS walking with perfect sensors (WORKLOG S3-M4). Like any six-axis filter it cannot see a bias about the vertical while moving"
+  wire:
+    mode:
+      value: binary16
+      label: firmware
+      source: "binary16: the new suit's 16-byte frame (new_device_code/Pod_Watch_Binary, mesqsim/codec.py); json: the old suit's line (Device code/Dongle__JSON.ino:59), suit_2026_11_13 (Step 3 brief §4.6, §5.4)"
+    json_decimals:
+      value: 2
+      label: firmware
+      source: "Device code/Dongle__JSON.ino:59 joins the floats into an Arduino String, which prints 2 decimals; Nov 13's exact repeats suggest more, so S3-M6 fits it from Φ8 (Step 3 brief §4.6, §5.5)"
+      sweep: [2, 3, 4, 5, 6]
+    json_send_min_ms:
+      value: 32
+      label: firmware
+      source: "the old pod sends when millis() > the last send + 1000 / fps with fps = 32 (integer 31), so 32 ms or more apart (Device code/Pod_Watch_JSON/Pod_Watch_JSON.ino:160, 497-543); its loop yields one tick per pass (vTaskDelay(1), :546), so the twin uses a 32 ms grid on the pod's clock"
+  phone:
+    # Step 3 brief §4.7: R̂_ph = Y(-ψ_ph) R_ph Exp(η_ph), ψ_ph = a_ph + w_ph (+ jumps), the path integrated in that frame
+    # (mesqsim/twin/phone.py). No published evaluation of ARKit's accuracy was verified, so its errors are assumptions,
+    # swept; Step 5 measures them from the app's log and markers on the phone.
+    frame_rate_hz:
+      value: 60.0
+      label: firmware
+      source: "one PosePipeline.process per ARKit frame, about 60 Hz (new_device_code/phone_app/.../Core/PosePipeline.swift:10)"
+    frame_jitter_ms:
+      value: 1.5
+      label: assumption
+      source: "ARKit timestamps uniform within ±this of the 60 Hz grid: the app's own pipeline check (phone_app/MATH.md §6)"
+    init_s:
+      value: 1.0
+      label: assumption
+      source: "tracking 'limited: initializing' for this long after the AR session starts; nothing is sent (PosePipeline.swift policy)"
+    heading_walk_deg_sqrt_min:
+      value: 0.5
+      label: assumption
+      source: "w_ph: random walk of ARKit's world heading, °/√min"
+      sweep: [0.0, 0.5, 2.0]
+    tilt_sigma_deg:
+      value: 0.2
+      label: assumption
+      source: "η_ph: first-order Gauss-Markov per camera axis, stationary σ"
+    tilt_tau_s:
+      value: 1.0
+      label: assumption
+      source: "η_ph's correlation time"
+    scale_error_max:
+      value: 0.01
+      label: assumption
+      source: "σ_s: the path's scale error, uniform within ±this per session"
+    position_walk_cm_sqrt_min:
+      value: 1.0
+      label: assumption
+      source: "w_p: a random walk added to the reported position, per axis, cm/√min"
+    limited_per_min:
+      value: 0.5
+      label: assumption
+      source: "episodes of 'limited: excessive motion' (orientation only), Poisson in time"
+      sweep: [0.0, 0.5, 2.0]
+    limited_mean_s:
+      value: 1.0
+      label: assumption
+      source: "their mean length (exponential)"
+    reloc_per_min:
+      value: 0.05
+      label: assumption
+      source: "episodes of 'limited: relocalizing' (nothing sent), Poisson in time"
+      sweep: [0.0, 0.05, 0.5]
+    reloc_mean_s:
+      value: 2.0
+      label: assumption
+      source: "their mean length (exponential)"
+    reloc_heading_jump_deg:
+      value: 2.0
+      label: assumption
+      source: "ψ_ph jumps by N(0, this²) when a relocalisation ends"
+    reloc_position_jump_cm:
+      value: 5.0
+      label: assumption
+      source: "the reported position jumps by N(0, this²) per axis when a relocalisation ends"
+    link_latency_min_ms:
+      value: 15.0
+      label: assumption
+      source: "phone -> hub (Wi-Fi WebSocket) -> USB -> page: the smallest delay"
+    link_latency_jitter_ms:
+      value: 10.0
+      label: assumption
+      source: "plus an exponential delay of this mean"
+    link_max_in_flight:
+      value: 2
+      label: firmware
+      source: "HubLink.swift:18-22, 63: at most two sends in flight; a pose that cannot go is dropped, never queued (latest pose wins)"
+  app:
+    # The app's settings on 2026-11-14: the header of its log of that day (WORKLOG S3-M0), 26 min before the take, assumed
+    # unchanged for it; each is also the app's default (Core/Settings.swift).
+    rate_hz:
+      value: 30.0
+      label: measured
+      source: "rate_hz=30 in hips_20261114_162125.csv's header"
+    tree:
+      value: velvetFamily
+      label: measured
+      source: "page_tree=velvetFamily in the log's header (PageTree in Core/HipsFrame.swift)"
+    facing:
+      value: forward
+      label: measured
+      source: "camera_facing=forward in the log's header"
+    hip_height_m:
+      value: 1.0
+      label: measured
+      source: "hip_height_m=1.000 in the log's header"
+    lever_m:
+      value: [0.0, 0.0, 0.1]
+      label: measured
+      source: "lever_cam_m=0,0,0.1 (the manual depth, camera frame) in the log's header"
 
 # Danyal's settings for the models Danyal writes (Step 3 brief §7): empty on purpose. The guide's recommendations
 # go here as comments, labelled assumption, when the guide is written.

@@ -4,6 +4,9 @@
                                       prints the comparison, writes $MESQ_OUTPUT_DIR/real_stats_g<commit>/summary.json
     twin-body [--files N]             skin against bone, specific force under each smoothing, sensor saturation,
                                       on AMASS walking of the training split; writes twin_body_g<commit>/report.json
+    twin-fusion [--files N]           the fusion's own tilt and heading error on the same walking, with perfect and
+                                      with drawn sensors, and how much gyroscope bias each filter removes; writes
+                                      twin_fusion_g<commit>/report.json
 
 They live in their own module so that adding one never moves a line of ``mesqsim/cli.py``, to which the Step 2
 explanations link by line number.
@@ -78,6 +81,36 @@ def cmd_twin_body(args) -> int:
     return 0
 
 
+def cmd_twin_fusion(args) -> int:
+    from .runs import git_commit
+    from .twin.fusion_report import fusion_report
+
+    rep = fusion_report(n_files=args.files)
+    w = rep["walking"]
+    print(f"{len(w['files'])} training-split walking files, {w['seconds']:.0f} s per site, filters at "
+          f"{w['rate_hz']:.0f} Hz, positions smoothed at {w['cutoff_hz']:.0f} Hz")
+    for mode, cases in w["modes"].items():
+        for case, sites in cases.items():
+            print(f"\n{mode}, {case} sensors: site, turns med, tilt error med/P95/max deg, |Δψ| P95/max deg, "
+                  f"|Δψ end| per turn med/max deg")
+            for name, s in sites.items():
+                a, d, r = s["tilt_deg"], s["abs_dpsi_deg"], s["dpsi_per_turn_deg"]
+                print(f"  {name:13s} {w['turns'][name]['median']:4.2f}  {a['median']:6.3f}/{a['p95']:6.3f}/"
+                      f"{a['max']:6.3f}   {d['p95']:7.4f}/{d['max']:7.4f}   {r['median']:6.3f}/{r['max']:6.3f}")
+    b = rep["bias_removal"]
+    print(f"\nbias {b['bias_deg_s']} °/s; share of the vertical component estimated at {b['marks_s']} s:")
+    for case in ("still", "turning"):
+        for mode, r in b[case].items():
+            print(f"  {case:8s} {mode:7s} {[round(x, 3) for x in r['vertical_share']]}  ψ end {r['psi_end_deg']:8.3f}° "
+                  f"(without: {r['psi_end_without_estimate_deg']:.1f}°)")
+    commit = git_commit()
+    out = output_dir() / f"twin_fusion_g{commit[:7]}{'-dirty' if commit.endswith('+dirty') else ''}"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.json").write_text(json.dumps(rep | {"commit": commit}, indent=1), encoding="utf-8")
+    print(f"wrote {out / 'report.json'}")
+    return 0
+
+
 def add_parsers(sub) -> None:
     """Add Step 3's subcommands to the ``python -m mesqsim`` parser."""
     rs = sub.add_parser("real-stats", help="Φ1-Φ12 of the recordings against Step 3 brief §5.3")
@@ -86,3 +119,6 @@ def add_parsers(sub) -> None:
     tb = sub.add_parser("twin-body", help="skin against bone and smoothed forces on AMASS walking (S3-M3)")
     tb.add_argument("--files", type=int, default=12, help="training-split walking files (default 12)")
     tb.set_defaults(fn=cmd_twin_body)
+    tf = sub.add_parser("twin-fusion", help="the fusion's own error on AMASS walking, and bias removal (S3-M4)")
+    tf.add_argument("--files", type=int, default=12, help="training-split walking files (default 12)")
+    tf.set_defaults(fn=cmd_twin_fusion)

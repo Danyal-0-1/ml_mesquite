@@ -15,8 +15,12 @@ projected into the tangent plane, b̂ = n̂ x t̂.
 the case, which the wear guide lays along the limb pointing away from the trunk on the arms, up the thigh and shin,
 up the head and chest, forward on the foot. So M is the identity except on the thighs and shins, where the case
 points up and the bone down: a half turn about n̂. E_i is the strap error, uniform within ±max per axis
-(``twin.body.strap_error_max_deg``). **The phone**: screen against the body, rear camera forward, upright: its
-device axes are (b̂, t̂, -n̂) (x to the right, y up, z out of the screen, into the body).
+(``twin.body.strap_error_max_deg``). **The phone**: screen against the body, rear camera forward, upright in
+portrait with the Home-button end down (`assumption`). Its frame is ARKit's camera frame (``ARCamera.transform``,
+quoted in the app's ``MATH.md`` §2): +X along the long axis toward the Home-button end, +Y "up" in landscape, +Z out
+of the screen, the rear camera looking along -Z. Worn so, +X points down, +Y to the wearer's right and +Z into the
+body: (-t̂, b̂, -n̂). The app's orientation does not depend on this choice (the mounting cancels, ``MATH.md`` §3.3);
+its position does, through the lever arm.
 """
 
 from __future__ import annotations
@@ -82,8 +86,8 @@ _HALF_TURN_Z = Rotation.from_rotvec([0.0, 0.0, np.pi]).as_quat()
 MOUNT_CHIP = {s.name: (_HALF_TURN_Z if s.name in ("LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg")
                        else np.array([0.0, 0.0, 0.0, 1.0])) for s in SITES if s.name != "Phone"}
 """M_i: chip axes in the surface frame (x, y, z) = (t̂, b̂, n̂), as quaternions (x, y, z, w). Label: assumption."""
-MOUNT_PHONE = Rotation.from_matrix(np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]])).as_quat()
-"""The phone's device axes (x right, y up, z out of the screen) in its belt site's surface frame: (b̂, t̂, -n̂)."""
+MOUNT_PHONE = Rotation.from_matrix(np.diag([-1.0, 1.0, -1.0])).as_quat()
+"""The phone's ARKit camera axes in its belt site's surface frame: (-t̂, b̂, -n̂), a half turn about b̂."""
 
 
 def site_vertex(model: SmplhModel, site: Site, betas=None) -> int:

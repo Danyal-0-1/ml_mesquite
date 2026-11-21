@@ -9,13 +9,16 @@ import pandas as pd
 from ..data.amass import amass_dir
 from ..paths import REPO_ROOT
 from .bodymotion import body_tracks, skin_against_bone_deg
+from .config import load_twin_config
 from .physics import imu_truth
+from .sensors import G0_M_S2
 from .smplh import load_model, load_smplh_sequence
 
 __all__ = ["ACCEL_RANGE_M_S2", "GYRO_RANGE_RAD_S", "walking_files", "body_report"]
 
-ACCEL_RANGE_M_S2 = 4 * 9.80665  # ±4 g, the range the DMP runs the accelerometer at (Danyal, S3-M0: 8192 LSB/g)
-GYRO_RANGE_RAD_S = np.deg2rad(2000.0)  # ±2000 °/s (`assumption` until S3-M4 reads the firmware's setting)
+_CFG = load_twin_config()
+ACCEL_RANGE_M_S2 = _CFG["twin.sensors.accel_range_g"] * G0_M_S2  # ±4 g (twin.sensors.accel_range_g)
+GYRO_RANGE_RAD_S = np.deg2rad(_CFG["twin.sensors.gyro_range_deg_s"])  # ±2000 °/s (twin.sensors.gyro_range_deg_s)
 
 
 def walking_files(n: int, split: str = "train") -> list[str]:

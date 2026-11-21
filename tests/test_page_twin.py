@@ -29,9 +29,24 @@ def test_page_twin_matches_the_page(name):
     assert r["bvh_header_equal"], r  # hierarchy, offsets, frame count and time, provenance lines: identical text
 
 
-def test_all_three_scenarios_in_both_trees():
-    assert {c.rsplit("_", 1)[1] for c in CASES} == {"velvet", "smooth"}
-    assert {c.rsplit("_", 1)[0] for c in CASES} == {"tpose_leg_swing", "turn_phone_moving", "hipsalt_silent"}
+def test_all_four_scenarios_in_both_trees():
+    assert {c.rsplit("_", 1)[1] for c in CASES} == {"velvet", "smooth"} and len(CASES) == 8
+    assert {c.rsplit("_", 1)[0] for c in CASES} == {"tpose_leg_swing", "turn_phone_moving", "hipsalt_silent",
+                                                     "phone_zero_guard"}
+
+
+def test_zero_guard_fixture_shows_the_page_skipping_zero_positions():
+    """In the zero-guard scenario the real page left the hips where they were for every phone message whose
+    position held an exact 0 (custom_icm.js:931), and moved them otherwise: the fixture's own record shows it."""
+    for tree in ("velvet", "smooth"):
+        case = load_case(f"phone_zero_guard_{tree}")
+        pairs = [(e["msg"], r) for e, r in zip(case["input"]["events"], case["golden"]["per_event"], strict=True)
+                 if e["type"] == "msg" and e["msg"]["bone"] == "Hips"]
+        zero = [not (m["px"] and m["py"] and m["pz"]) for m, _ in pairs]
+        assert 20 < sum(zero) < len(pairs) - 20, sum(zero)
+        moved = [pairs[k][1][4:7] != pairs[k - 1][1][4:7] for k in range(1, len(pairs))]
+        assert not any(m for m, z in zip(moved, zero[1:], strict=True) if z), tree  # a 0 never moves the hips
+        assert sum(m for m, z in zip(moved, zero[1:], strict=True) if not z) > 20, tree
 
 
 P_TPOSE = np.array([0.31, 1.05, -0.42])

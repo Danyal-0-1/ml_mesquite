@@ -77,14 +77,16 @@ def test_surface_frames_are_right_handed_with_the_normal_last():
 
 def test_mountings():
     """The chip's z is the face (out of the skin) on every pod; the case points up the thigh and shin, a half turn
-    about the normal from the bone's downward axis; the phone's device axes are (b̂, t̂, -n̂)."""
+    about the normal from the bone's downward axis; the phone's ARKit camera axes are (-t̂, b̂, -n̂), so its rear
+    camera (-Z) looks out of the skin."""
     for name, q in MOUNT_CHIP.items():
         m = Rotation.from_quat(q).as_matrix()
         assert np.allclose(m[:, 2], [0, 0, 1]), name
         legs = name in ("LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg")
         assert np.allclose(m[:, 0], [-1, 0, 0] if legs else [1, 0, 0], atol=1e-12), name
     m = Rotation.from_quat(MOUNT_PHONE).as_matrix()
-    assert np.allclose(m, [[0, 1, 0], [1, 0, 0], [0, 0, -1]], atol=1e-12) and np.isclose(np.linalg.det(m), 1.0)
+    assert np.allclose(m, np.diag([-1, 1, -1]), atol=1e-12) and np.isclose(np.linalg.det(m), 1.0)
+    assert np.allclose(m @ [0, 0, -1], [0, 0, 1], atol=1e-12)  # the view direction is the outward normal
 
 
 # ------------------------------------------------------------------------------------------- with SMPL+H
