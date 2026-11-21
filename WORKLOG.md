@@ -1997,3 +1997,162 @@ the session never read, as the surface twin; the second was stopped when that wa
 - Gate G3 (§8.6) needs GEO-ID's numbers on the validation split: `python scripts/make_results_step3.py --split val
   --no-ablations --no-page --no-figures --out <file>` writes them to `results_step3/twin_v1/baselines_val.csv`,
   which `score-model` reads; not run here (about 45 minutes), as no learned model exists yet.
+
+## 2026-11-21 · S3-M10 and the Step 3 report (Step 3 brief §13) · branch `s3-m10` (stacked on `s3-m9`; nothing pushed)
+
+**Previous milestones' commits.** S3-M9: `b5325ba`, `a401d12`, `bdf77e7`, `598f35b`, `9e4a3c9` on `s3-m9` (local).
+
+**Plan stated.** The documentation of §11 and `docs/step_3/` (§12) are the Markdown parts deferred at S3-M0 (Danyal's
+instruction, CLAUDE.md rule 14): listed in item 9 to request. The report; the full check; the tag `step3` (local, not
+pushed).
+
+### The Step 3 report
+
+**1. What was built** (Step 3, S3-M0 to S3-M9; every file under `mesqsim/` with a test or a check):
+- **The recordings** (`mesqsim/real/`): `bvh.py`, `motive.py`, `markers.py`, `align.py`, `stats.py`, `analysis.py`,
+  `recordings.py`; `manifests/real_suit.csv`.
+- **The twin** (`mesqsim/twin/`): the body and its sites (`smplh.py`, `sites.py`, `bodymotion.py`, `body_report.py`,
+  `physics.py`), the sensors and the fusion (`sensors.py`, `fusion.py`, `fusion_report.py`, `labels.py`), the wire
+  (`wire.py`), the phone and its app (`phone.py`, `phone_app.py`, `app_golden.py`), the page (`page.py`,
+  `page_frame.py`, `page_scenarios.py`, `three_math.py`, `golden.py`), the programs and the session (`program.py`,
+  `session.py`), the suit versions (`suits.py`), the twin's statistics (`twin_stats.py`), the calibration
+  (`calibration.py`), the checks' numbers (`checks.py`, `session_checks.py`), the config (`config.py`,
+  `configs/twin.yaml`).
+- **The data and the model kit** (`mesqsim/learn/`): `features.py`, `targets.py`, `store.py`, `curve.py`,
+  `contract.py`, `scorer.py`, `dummies.py`, `rigid.py`, `through_page.py`, `checks.py`; `manifests/twin_v1.csv`.
+- **The results**: `mesqsim/results_step3.py`, `scripts/make_results_step3.py`, `docs/RESULTS_STEP3.md`,
+  `docs/figures/results_step3_growth.png`.
+- **Commands** (`mesqsim/cli_step3.py`): `real-stats`, `twin-body`, `twin-fusion`, `twin-session`, `twin-calibrate`,
+  `twin-dataset`, `verify-dataset`, `score-model`.
+- **Golden tools**: `tools/page_golden/{run.mjs,load_bvh.mjs,make_fixtures.py}`, `tools/app_golden/{main.swift,
+  make_fixtures.py}`, and their fixtures under `tests/fixtures/`.
+- **Tests**: `tests/test_{real_readers,real_markers,real_stats,real_recordings,page_frame,page_twin,twin_body,
+  twin_fusion,twin_wire,twin_phone,twin_session,twin_calibration,learn_features,learn_curve,learn_store,learn_rigid,
+  model_kit,results_step3,through_page}.py`; checks 40.1-53.1 in `mesqsim/validation.py` (`docs/VALIDATION.md`).
+- **Changed**: `CLAUDE.md`, `mesqsim/cli.py`, `mesqsim/validation.py`, `pyproject.toml`, `tests/conftest.py`,
+  `WORKLOG.md`, `docs/brief/STEP3_BRIEF.md` (saved).
+
+**2. The full check.** `bash scripts/check_all.sh` at `9e4a3c9` (clean worktree; the S3-M10 commit adds only
+this entry and that check's `docs/VALIDATION.md`), 2026-11-21 22:18 UTC, 780 s:
+
+```text
+== ruff
+All checks passed!
+== pytest
+445 passed, 10 skipped in 424.44s (0:07:04)
+== validation
+wrote docs/VALIDATION.md
+VALIDATION: PASS
+== ALL CHECKS PASSED
+```
+
+70 validation checks pass, none fail, none skip (`docs/VALIDATION.md`); the 10 skipped tests are the tests of Danyal's
+loader, networks, loss and training loop, which skip until those modules exist. The explanations' tests (§10 item 15)
+come with the explanations.
+
+**3. The twin.**
+- §5.3 reproduced (S3-M1, check 49.1): 48 of the 62 reference values within tolerance; the 14 others explained in
+  `mesqsim/real/recordings.py` (`EXPLAINED_DIFFERENCES`) and the S3-M1 entry.
+- Fitted (S3-M6): VQF's tilt time constant τ_acc = 0.5 s; the old wire's precision, Nov 13's dongle 4 decimals (4 to 6
+  in 16 of 20 kept draws) and Nov 4's 2 (`suits.py`). Every continuous parameter's posterior spans 74-95 % of its
+  prior: the seven recordings do not narrow them, and they stay `assumption` (the S3-M6 table).
+- The gap: the twin covers 26 of 42 core statistics (Step 1's simulator 14); the classifier's AUC 0.366 (Step 1
+  0.656). **G-T passes. H6 is supported**, descriptively. Not reproduced: the shins' drift in motion (neither scale
+  error × turning nor a mirrored bias nor a bias walk explains Nov 13 and Nov 4 together), Φ5's scale on four of
+  five Nov 13 takes, the drawn root's height on Nov 13, Nov 4's drifting Head pod.
+
+**4. The data.** `twin_v1`, at `$MESQ_OUTPUT_DIR/datasets/twin_v1/`: 665 sessions, 200.4 h (train 173 subjects × 3
+draws, 152.3 h; validation 37 × 2, 26.4 h; test 36 × 2, 21.7 h), 19.42 GB in 88 files, `MANIFEST.csv` SHA-256
+`f65b7ee61cea591c5b413e6801db4a1ce1d3885cab98896ffa9f1a3363dd877a` (`manifests/twin_v1.csv`). The coverage rule holds
+in 121 of 864 strata: "other" and "still" are covered everywhere; walking, turning, the T-pose and the rare and
+protocol motions are not. To extend: `python -m mesqsim twin-dataset --name twin_v1 --calibration
+<twin_calibration_g4a03aeb-dirty> --extend 1.33` adds a fourth training draw (about 4.7 GB, over rule 5's 20 GB:
+Danyal's call); validation and test never change.
+
+**5. The numbers to beat** (`docs/RESULTS_STEP3.md`, under its banner: twin `5de4440cd537`, AMASS motion; 2 fitted,
+10 measured, 2 datasheet, 5 firmware and 59 assumption parameters; `twin_v1`'s 72 test sessions, 36 held-out
+subjects; median |error|):
+- δ per joint: B0 23.13°, B1 23.13°, O1 16.43° (truth), **GEO-ID 13.61°** (hinge 10.4°, 2-DoF 16.1°, 3-DoF 13.4°).
+- ε per pod: B0 83.25°, B1 83.25°, O1 14.31° (truth), RIGID+B1 43.25°, **RIGID+GEO 29.69°**; the root link alone
+  (RIGID, HipsAlt) 9.4°.
+- Over subjects: GEO-ID beats B1 by 13.4° (95 % 9.5-17.4), RIGID's link B1 by 27.8° on ε, GEO-ID's δ RIGID+B1's by
+  9.7°; B1 adds nothing to B0 (the pods boot in the box, so the box registration reads zeros).
+- GEO-ID's κ is overconfident on the twin (68 % intervals hold 27 % of its errors); B1's error grows with time since
+  boot (11° to 36°), GEO-ID's barely (10° to 17°); a limb restart nearly triples B1's (14° to 37°).
+- Through the page (Nov 14's slips): with the phone zeroed in the T-pose a perfect per-pod model (the true ε) puts both
+  shins within ±15° of the truth in 7 of 12 sessions (medians 12.5° and 5.8°) and Φ7 within ±20° in all 12; zeroed at
+  Start, as on Nov 14, it cannot (31° and 35°, Φ7 35°): the phone's Zero sets the drawing's north. Every correction
+  through the page also needs the page's constant 90° turn between a pod's frame and the phone's.
+- The retro path's "before" measures (recordings, descriptive): Nov 13's shins drawn at −75° to −31° (left) and +17° to
+  +67° (right) against OptiTrack's +1° to +29° and −15° to +10°; Nov 14's at +72° and +9°, Φ7 +64°.
+- How Danyal starts: the guide is not written (item 9). Meanwhile: `twin_v1`'s `README.md` and `meta.json` describe
+  the arrays (`h5py.File(shard)["sessions"][id]`: `x_pod` (T, 15, 8), `x_joint` (T, 14, 6), `x_phone` (T, 8),
+  `x_pod_phone` (T, 15, 6), the states; the targets through `mesqsim.learn.targets.read_targets` only); a model meets
+  `mesqsim.learn.contract.Model`; `python -m mesqsim score-model --model <module>:<Class> --dataset twin_v1 --split
+  val` scores it (and `--through-page` draws it); `tests/test_model_kit.py` tests the loader, networks, loss and
+  training loop as soon as `mesqsim/learn/{loader,models,loss,train}.py` exist.
+
+**6. Every assumption still in the config, and every fitted value with its command.**
+- `fitted`: `twin.fusion.vqf_tau_acc_s` = 0.5 s and `twin.wire.json_decimals` = 4 (`python -m mesqsim twin-calibrate
+  --draws 200 --keep 0.1 --predictive 10 --workers 5 --real-summary <real_stats>/summary.json`, and for τ_acc the Φ8
+  reading of its 200 draws in the config's source); `suits.NOV04_JSON_DECIMALS` = 2 (the same run). Step 1's
+  `error_model.box_slot_deg` posterior (median 4.0°, 90 % 0.6-16°) is recorded, Step 1's config unchanged.
+- `assumption` (59 in `configs/twin.yaml`): `body.pod_frame`, `body.strap_error_max_deg`; `physics.position_cutoff_hz`;
+  the sensors' misalignments, accelerometer noise, scale and bias, ranges and ADC bits, the gyroscope bias spread and
+  its random walk (fitted interval in the source); the fusion's mode, rest and motion bias estimation, Mahony's gains;
+  the phone's frame jitter, start, heading walk, tilt noise, scale error, position walk, tracking episodes,
+  relocalisations and link latency; the programs' rate, blends, heading window, lengths, still stands and T-poses;
+  the procedure's timings, the phone in the hand and on the belt, the box position, the posture error, the four slip
+  probabilities (fitted intervals in their sources), `force_limb`, the arm raise; `page.mode`. Besides, in code:
+  `learn.features.LAG_S` 0.1 s, `learn.store.DATASET_DEFAULTS` (draws, widening, shares, budget, 1,000 windows),
+  `learn.store.DRAWS_PER_COMPOSITION` 8, `learn.rigid.TRACK_WINDOW_S` 30 s and `KAPPA_HOLD` 100,
+  `twin.calibration.TOLERANCE` and `Z2_CAP`.
+
+**7. What is blocked, and on whom.**
+- The models (TCN-J, TCN-P, TCN-P-chain, the loader, the loss, training): Danyal's, by the brief; the tests and
+  `score-model` wait for them. Gate G3 waits for them too.
+- The Markdown explanations (`docs/step_3/`, the §11 documents, the dataset card, the guide, `FIDELITY.md`) and their
+  tests (§10 item 15): deferred at Danyal's request (S3-M0); listed in item 9.
+- The retro path (a Should): the BVH-to-virtual-pod converter, `twin_v1_bvh` and the before-and-after command are not
+  built; the "before" measures are in `docs/RESULTS_STEP3.md`.
+- Pushing: Step 3 is local (Danyal's answer, S3-M0); nothing was pushed and no pull request was opened.
+
+**8. What Danyal must decide.**
+- Freeze the recording split (proposed in §5.4 and used), the dataset-size rule (`curve.py`'s 0.1° and 2 %), and
+  the analysis plan.
+- The disclosure question: whether the Step 3 code goes public.
+- Whether `twin_v1` is good enough to keep, or Step 5's bench comes first: the twin covers 26 of 42 statistics and the
+  classifier cannot tell its windows apart, but it does not drift the way the shins drift in motion, and the coverage
+  rule fails for every named motion type.
+- The 20 GB budget: a fourth training draw (+4.7 GB), or programs with more walking.
+- The next OptiTrack session: a marker triad per pod, three markers on the phone, named markers, the sync event; the
+  protocol program (KIT subject 3's) is ready for it. And on the day: the phone zeroed in the T-pose on the belt (the
+  page test shows a phone zeroed elsewhere breaks every phone-relative correction), and the pods' box slots checked.
+- Whether the pod firmware should send the raw gyroscope and accelerometer streams (`Pod_Watch_Binary.ino:476-480`).
+- Three facts to confirm: Nov 4's dongle (2 decimals; Nov 13's printed more) and whether the phone ran on Nov 4 (its
+  root stands at 50.0 cm); how the Zero was taken on Nov 14 (the data say in the hand, the S3-M0 answer the T-pose).
+
+**9. Where the explanations are.** Not written, at Danyal's request: `docs/step_3/README.md`, `MENTAL_PICTURE.md`,
+`PIPELINE_EXPLAINED.md`, `MATH_EXPLAINED.md`, `CODE_EXPLAINED.md`, `THEORY.md`, `REFERENCES.md` with `references.bib`,
+`FIDELITY.md`, `DATASET_CARD.md`, `LEARN_THE_MODEL.md`, `MODEL_CARD_TEMPLATE.md`; and of §11 the `README.md` update,
+`docs/SIMULATOR.md`, `docs/DATA.md`, `docs/PIPELINE.md`, `docs/MATH.md`, `docs/CODE.md`, `docs/MUST_KNOW.md`'s Step 3
+section and `docs/analysis_plan_DRAFT.md` (H6, H7, the split, the dataset-size rule, TCN-P's contrasts). Until they
+exist the WORKLOG entries S3-M0 to S3-M10, the module docstrings and `docs/RESULTS_STEP3.md` carry their content; the
+first two to request are `DATASET_CARD.md` and `LEARN_THE_MODEL.md`, which Danyal needs before writing the loader.
+
+**10. A proposed plan for Step 4, fusion** (not started).
+- **The question.** Does combining Step 2's geometry with Step 3's learning beat both? Gate G4, as G3: on validation,
+  at any joint type, the fusion ahead of the better of GEO-ID and the best learned model, by the paired bootstrap
+  over subjects.
+- **First, recalibrate the confidences.** GEO-ID's κ was fitted on Step 1's simulator; on the twin it is overconfident
+  (on `twin_v1`'s test split its 68 % and 95 % intervals hold 27 % and 44 % of its errors). Refit its κ scales on
+  `twin_v1`'s validation split (`fit-geometry` against the twin), and require the learned models' κ̂ to be calibrated
+  there too (the scorer's reliability table), or no fusion can weigh them.
+- **Three fusions, simplest first.** (a) Late: the von Mises product of GEO-ID's and the network's estimates per
+  joint and step (κ-weighted circular mean), with one temperature per joint type fitted on validation. (b) Residual:
+  the network takes GEO-ID's δ̂ and κ as two more inputs and learns a correction. (c) Filtered: Step 2's von Mises
+  filter with the network's output as one more measurement. Each is scored by `score-model`.
+- **The phone link.** For ε, RIGID's root against TCN-P's own: fuse the same way at HipsAlt, then chain.
+- **Through the page,** with `score-model --through-page`: the shins' Φ3 and Φ7 against the truth, as §8.3.
+- **Real data before any claim:** the next OptiTrack session (the protocol program, a marker triad per pod) is the
+  only test that is not the twin's own; Step 4's numbers on the twin are a ceiling, not a result.
