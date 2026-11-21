@@ -1746,3 +1746,94 @@ draws, the closest 20 kept, best distance 2.02, median 2.46; no session failed).
 **Commands.** `python -m mesqsim twin-calibrate --draws 200 --keep 0.1 --predictive 10 --workers 5 --real-summary
 <real_stats>/summary.json` (round 3, 3,149 s, Step 1's 70 predictive sessions re-used from round 2; round 2 the same on
 four workers, 3,894 s); `pytest tests/test_twin_calibration.py`.
+
+## 2026-11-21 · S3-M7 (the dataset) · branch `s3-m7` (stacked on `s3-m6`; nothing pushed)
+
+**Previous milestone's commits.** `2124a61`, `eacf4a1` on `s3-m6` (local).
+
+**Plan stated.** The stored inputs (§7.1) and targets (§6.1); `twin_v1` from S3-M6's posterior (§6.2-6.4), every
+training subject with its corruption draws, the nested parts, `--extend`, `verify-dataset`, the coverage of the
+strata; `curve.py` (§6.3); checks 48.2 (an identical manifest) and 50.1 (the dataset's rules). The dataset card is a
+deferred Markdown part (S3-M0); `meta.json` and the generated `README.md` carry the specification meanwhile.
+
+**Commits.** `8adc115` (the code; `twin_v1` generated at it), `0233b8d` (a subject is its subset and id; the
+projection from the plan).
+
+**Files added.** `mesqsim/learn/{__init__,features,targets,store,curve,checks}.py`,
+`tests/test_learn_{features,curve,store}.py`, `manifests/twin_v1.csv`. **Changed.** `mesqsim/cli_step3.py`
+(`twin-dataset`, `verify-dataset`), `mesqsim/validation.py` (48.2, 50.1).
+
+**What was built.**
+- `features.py` (§7.1, `FEATURE_VERSION` 1): per pod (15 × 8) tilt R̂ᵀe_z, the rate between its last two fresh
+  samples in its own frame, the age of the last fresh sample, held; per joint (14 × 6) the first two columns of
+  R̂_pᵀR̂_c; the phone's eight (orientation-only for held); per pod relative to the phone (15 × 6); the states. One
+  host clock: each epoch's pod clock mapped by Step 2's `fit_host_map`, refitted once a second on the frames that have
+  arrived; the phone's time is its arrival. Causal: the value at step k uses what had arrived by t_k and describes
+  the body at t_k − 0.1 s (`LAG_S`, `assumption`), so a stream cut at t_k computes the stored row exactly; C5 holds
+  to float32's precision (51.1).
+- `targets.py`: δ per joint from `labels_joints`, ε per pod from `labels_steps`' ψ, with validity masks; the only
+  module that reads `y_*`.
+- `store.py`: one session per subject composition (its program: the subject's clips, order and drawn length), with
+  `variants` corruption draws of it (everything else: θ from the posterior widened 1.5× in log scale, every unfitted
+  swept parameter from its sweep, the suit version, HipsAlt, the slips, the protocol program for KIT subject 3);
+  HDF5 shards of 8 sessions (gzip 4, shuffle, chunks of 2,048 steps), `index.parquet`, `meta.json`, `README.md`,
+  `MANIFEST.csv`; the nested parts 1/16 ... 1 of the training subjects; `--extend <factor>` multiplies the training
+  sessions (more draws of the same composition first, up to 8, then new compositions) and never touches a stored
+  file; a projection of the disk before anything is written (rule 5) and a guard while writing; `verify` (every file
+  re-hashed, none unlisted, no subject in two splits, ids unique, parts on training subjects only, every per-step
+  array of its session's length on the 32 Hz grid); the reference windows (18 s, the 10 s loss regions tiling each
+  session); coverage per pod or joint type × motion type × time since boot.
+- `curve.py`: err(n) = c + a·n^(−b) (Hestness et al. 2017) fitted to the validation median error against training
+  hours; sufficient when one more doubling is predicted to gain less than 0.1° and 2 %, for the mean fit and for each
+  seed, and the seeds' spread is at least that gain; tested on made-up curves.
+
+**`twin_v1`** (`$MESQ_OUTPUT_DIR/datasets/twin_v1/`; generated at `8adc115` in a clean worktree from S3-M6's posterior,
+seed 1, five workers, 5,040 s wall, 22,500 CPU-s):
+
+| split | subjects | sessions | hours | steps | draws | old suit | no HipsAlt | limb restart | Zero at Start |
+|---|---|---|---|---|---|---|---|---|---|
+| train | 173 | 519 | 152.3 | 17,548,179 | 3 | 49 % | 16 % | 45 % | 61 % |
+| val | 37 | 74 | 26.4 | 3,037,218 | 2 | 46 % | 15 % | 39 % | 61 % |
+| test | 36 | 72 | 21.7 | 2,504,962 | 2 | 38 % | 19 % | 47 % | 60 % |
+
+- 200.4 hours in 665 sessions of 3.7-33 minutes; 88 files, **19.42 GB** (the plan projected 18.6 GB at 800 B a step,
+  the shards hold 831); `MANIFEST.csv` SHA-256 `f65b7ee61cea591c5b413e6801db4a1ce1d3885cab98896ffa9f1a3363dd877a`,
+  copied to `manifests/twin_v1.csv`. KIT subject 3's three training sessions run the protocol program.
+- Nested parts of the 173 training subjects: 10 in 1/16, 21 in 1/8, 43 in 1/4, 86 in 1/2.
+- `python -m mesqsim verify-dataset --name twin_v1` (at `0233b8d`): 665 sessions, 88 files, bad hashes 0, subjects in
+  two splits 0, problems 0; one session simulated again from its seed and conditions: identical (27 s).
+- **Coverage** (training windows of 18 s whose 10 s loss regions tile each session; per pod or joint type × motion
+  type × time since boot): the rule of §6.2 (1,000 a stratum) holds for 121 of 864 strata and fails for 743. Every
+  unit has 1,000 or more in "other" (4,482-15,846 per stratum) and "still" (1,730-5,938) in every time bin; the
+  motion types AMASS names are rare: walking 163-534 windows a stratum, turning 52-209, the T-pose 183-633, stairs,
+  bending, jumping, kicking and arm motions 0-106, and the protocol's own motions (twists, swings, raises, turns on
+  the spot) 0-6, in its one subject. Meeting the rule needs two to six times the walking there is, ten to a hundred
+  times the rarer types, and the protocol's from almost nothing; within rule 5's 20 GB that takes other programs (more
+  walking, the protocol on more subjects), not more draws.
+- `meta.json` counts 172 training subjects: it counted ids, and four AMASS ids repeat across subsets (CMU and KIT 10,
+  11, 12, 63; three of those pairs sit in different splits, which verify-dataset at `8adc115` counted as subjects in
+  two splits). Fixed in `0233b8d`; the dataset itself is unchanged.
+
+**Check.** `bash scripts/check_all.sh` at `0233b8d` (clean worktree), 2026-11-21 19:46 UTC, 816 s (beside the
+results run): `ruff` clean; `pytest` **428 passed**; validation **67 passed, 0 failed, 0 skipped of 67** (50.1 on
+`twin_v1`: 665 sessions, 88 files re-hashed, none bad; one session simulated again and its features streamed:
+identical).
+
+**Decisions.**
+- **Three training draws per subject, not four.** §6.3 starts at 4; four project to 23.3 GB (838 sessions, 253 h),
+  over rule 5's 20 GB, and three to 18.6 GB (665 sessions, 202 h). `--extend 1.33` adds a fourth draw (about 4.7 GB)
+  once Danyal agrees to the space. Validation and test keep two draws each; they are never extended, so scores before
+  and after an extension compare.
+- One composition (program) per subject, its draws differing in everything else: §6.3's "corruption draws per
+  session". `--extend` adds draws of it up to 8, then new compositions.
+- Every session of KIT subject 3 (training) runs the protocol program: no other subject's clips make it, and its
+  twists, swings, raises and turns on the spot occur nowhere else.
+- The shares (`assumption`): the old suit in half the sessions, no HipsAlt in a fifth; θ from S3-M6's posterior
+  widened 1.5× in log scale; every unfitted swept parameter from its sweep.
+- Generated from a clean worktree at the code commit, so `meta.json` names a clean commit.
+- The dataset card (`docs/step_3/DATASET_CARD.md`) is deferred with the other Markdown parts; `meta.json`, the
+  generated `README.md` and this entry carry its content meanwhile.
+
+**Commands.** `python -m mesqsim twin-dataset --name twin_v1 --calibration <twin_calibration_g4a03aeb-dirty>
+--variants-train 3 --variants-eval 2 --workers 5 --seed 1 --max-gb 20` (5,040 s); `python -m mesqsim verify-dataset
+--name twin_v1` (27 s); `pytest tests/test_learn_store.py tests/test_learn_features.py tests/test_learn_curve.py`.
