@@ -2082,3 +2082,24 @@ def _rigid(quick: bool) -> CheckResult:
     return CheckResult(f"(a) C {r['C']:.6f}, S {r['S']:.6f}, ε̂ {r['seven_deg']:.9f}°; (b) worst "
                        f"{r['random_max_err_rad']:.1e} rad, vertical RMS {r['random_vertical_rms']:.1e}; (c) κ "
                        f"{r['vertical_only_kappa']}", ok)
+
+
+@register(
+    "53.1",
+    "The same config and seed give an identical RESULTS_STEP3.md (Step 3 brief §10, item 14)",
+    "scripts/make_results_step3.py twice on the tiny dataset of 48.2 (its test session; no ablations, no page test, "
+    "no figures; 200 bootstrap resamples), comparing the two documents line by line apart from the 'Run:' line, "
+    "which holds the clock, the machine and the commit.",
+    "Every table of the Step 3 results must come back from one command; a hidden clock, set order or unseeded draw "
+    "would make the numbers to beat unrepeatable.",
+    "identical apart from the Run line",
+    "python scripts/make_results_step3.py --dataset-root DIR --max-sessions 1 --no-ablations --no-page --no-figures",
+)
+def _results_repro(quick: bool) -> CheckResult:
+    from .learn.checks import results_repro_numbers
+
+    r = results_repro_numbers()
+    if r is None:
+        return CheckResult(_NEEDS_AMASS, None)
+    return CheckResult(f"{r['lines']} lines, identical {r['identical']}" + (f"; differ: {r['differ']}" if r["differ"]
+                                                                           else ""), r["identical"])
