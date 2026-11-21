@@ -17,7 +17,7 @@ from scipy.spatial.transform import Rotation
 from .sites import MOUNT_CHIP, MOUNT_PHONE, SITE_VERTEX, SITES, face_rings, surface_frames
 from .smplh import SmplhModel, SmplhSequence, forward, load_model, rest_pose, skin, vertex_normals
 
-__all__ = ["BodyTracks", "body_tracks", "skin_against_bone_deg"]
+__all__ = ["BodyTracks", "body_tracks", "on_segments", "skin_against_bone_deg"]
 
 
 @dataclass
@@ -56,6 +56,19 @@ def body_tracks(seq: SmplhSequence, model: SmplhModel | None = None) -> BodyTrac
         q_seg[:, k] = Rotation.from_matrix(rot[:, b if site.axis_up else a]).as_quat()
         p[:, k] = by_vertex[SITE_VERTEX[site.name]]
     return BodyTracks(seq.t_s, tuple(s.name for s in SITES), q, p, q_frame, q_seg)
+
+
+def on_segments(tracks: BodyTracks) -> BodyTracks:
+    """The ``pod_frame: segment`` ablation (Step 1's s_i · m_i): every site rigid on its segment, s(t) · m with m the
+    surface frame's mean mounting on the segment over the sequence (F · M against s), so only the skin's own motion
+    against the bone is removed; the positions stay the skin's."""
+    from dataclasses import replace
+
+    q = np.empty_like(tracks.q)
+    for k in range(tracks.q.shape[1]):
+        seg = Rotation.from_quat(tracks.q_segment[:, k])
+        q[:, k] = (seg * (seg.inv() * Rotation.from_quat(tracks.q[:, k])).mean()).as_quat()
+    return replace(tracks, q=q)
 
 
 def skin_against_bone_deg(tracks: BodyTracks, k: int) -> np.ndarray:

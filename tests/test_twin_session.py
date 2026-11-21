@@ -157,3 +157,25 @@ def test_wrap_of_delta_signs_documented():
     psi_p, psi_c, g = 0.3, -1.2, 0.5
     assert np.isclose(wrap_rad((psi_c - g) - psi_p), wrap_rad(psi_c - psi_p) - g)
     assert np.isclose(wrap_rad(psi_c - (psi_p - g)), wrap_rad(psi_c - psi_p) + g)
+
+
+@pytest.mark.amass
+def test_the_segment_ablation_puts_every_pod_rigid_on_its_segment():
+    """twin.body.pod_frame: segment (§8.1's ablation): the pods' true orientation against their segment is constant
+    (it moves with the skin in the twin), and the session's reports differ from the surface twin's."""
+    import numpy as np
+    from scipy.spatial.transform import Rotation
+
+    from mesqsim.twin import session_checks as sc
+    from mesqsim.twin.bodymotion import body_tracks, on_segments
+
+    if not sc.available():
+        pytest.skip("needs AMASS (KIT subject 3) and the SMPL+H model")
+    joined, model, _ = sc._program("random", sc.SEED, sc.MINUTES)
+    tr = body_tracks(joined.seq, model)
+    seg = on_segments(tr)
+    k = tr.names.index("LeftLeg")
+    rel_seg = Rotation.from_quat(seg.q_segment[:, k]).inv() * Rotation.from_quat(seg.q[:, k])
+    rel_skin = Rotation.from_quat(tr.q_segment[:, k]).inv() * Rotation.from_quat(tr.q[:, k])
+    assert np.degrees((rel_seg * rel_seg[0].inv()).magnitude()).max() < 1e-6
+    assert np.degrees((rel_skin * rel_skin[0].inv()).magnitude()).max() > 1.0  # the skin does move against the bone

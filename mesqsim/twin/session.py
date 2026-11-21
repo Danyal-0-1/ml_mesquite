@@ -52,7 +52,7 @@ from ..sim.rng import stream
 from ..sim.simulate import fusion_error
 from ..sim.timing import pod_ms, simulate_timing
 from . import phone as ph
-from .bodymotion import body_tracks
+from .bodymotion import body_tracks, on_segments
 from .fusion import analytic_heading, analytic_reports, fuse, fusion_times
 from .labels import report_labels
 from .physics import imu_truth
@@ -332,6 +332,11 @@ def simulate_twin_session(cfg1: Config, cfgt: Config, seed: int, joined: JoinedM
     rate = plan.rate_hz
     seq = _with_posture(joined, plan)
     tracks = body_tracks(seq, model)
+    frame = cfgt["twin.body.pod_frame"]
+    if frame == "segment":  # the ablation: pods and phone rigid on their segments (Step 3 brief §4.2, §8.1)
+        tracks = on_segments(tracks)
+    elif frame != "surface":
+        raise ValueError(f"twin.body.pod_frame must be surface or segment, not {frame!r}")
     shift = np.asarray(room_shift_m, dtype=float)
     n_prog = seq.poses.shape[0]
     j0 = int(round(plan.t_prog0_s * rate))
