@@ -2255,3 +2255,22 @@ now public. `CLAUDE.md` rule 2 records the change.
 **Check.** This entry changes only Markdown: `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `REPOSITORY_GUIDE.md` and
 this log. `pytest tests/test_repo_guide.py` and `ruff check .` pass. The full check ran at `2625be6`, in the
 previous entry.
+
+## 2026-11-21 · GitHub's CI on Step 3: one test without its data guard
+
+**Previous entry's commit.** `288577d`, pushed.
+
+**What CI found.** This was the first CI run on Step 3, which had never been pushed before: run 44961163573 at
+`288577d`. It failed in the test step, with 1 failed, 387 passed and 74 skipped.
+`tests/test_through_page.py::test_the_forced_slips_are_nov14s` builds a tiny dataset, which needs AMASS, but lacked
+the guard that the other dataset tests use. On GitHub, where there are no data, it raised `KeyError: 'program_seed'`
+from an empty plan. On this Mac the data are present and the test passed, which is why the full check never caught
+it.
+
+**Fix.** The test now takes the tiny dataset from a module fixture. The fixture skips when AMASS and the SMPL+H model
+are absent (`checks.available()`), as in `tests/test_results_step3.py`.
+
+**Check.**
+- With the data present: `pytest tests/test_through_page.py`, 2 passed.
+- As on GitHub, with `MESQ_DATA_DIR` and `MESQ_OUTPUT_DIR` set to empty folders: `ruff check .` is clean;
+  `pytest` gives 387 passed and 75 skipped in 94 s; `python scripts/validate.py --quick` gives `VALIDATION: PASS`.
