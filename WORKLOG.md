@@ -1483,6 +1483,9 @@ core, the link and the phone's labels (§4.7); checks 42.1-45.1 (§10 items 3-6)
   °/min; it is now per turn.
 - Two app-golden scenarios turned the camera about its own Y (the body's right) instead of the body's vertical.
 
+**Check.** `bash scripts/check_all.sh` at `c78a064` (clean worktree), 2026-11-21 02:21 UTC, 274 s: `ruff` clean;
+`pytest` **385 passed**; validation **59 passed, 0 failed, 0 skipped of 59**.
+
 **Decisions.**
 - The DMP fuses at its output rate (`oversample` 1); `body_report.py` keeps 225 Hz only as its evaluation rate.
 - `json_loop_ms` was dropped: the old pod's loop checks every tick, so its sends lie on a 32 ms grid.
