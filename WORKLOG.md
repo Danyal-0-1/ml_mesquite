@@ -1837,3 +1837,65 @@ identical).
 **Commands.** `python -m mesqsim twin-dataset --name twin_v1 --calibration <twin_calibration_g4a03aeb-dirty>
 --variants-train 3 --variants-eval 2 --workers 5 --seed 1 --max-gb 20` (5,040 s); `python -m mesqsim verify-dataset
 --name twin_v1` (27 s); `pytest tests/test_learn_store.py tests/test_learn_features.py tests/test_learn_curve.py`.
+
+## 2026-11-21 · S3-M8 (the model kit) · branch `s3-m8` (stacked on `s3-m7`; nothing pushed)
+
+**Previous milestone's commits.** `8adc115`, `0233b8d`, `913e98e` on `s3-m7` (local). **This one's code.**
+`dde134f`.
+
+**Plan stated.** The contract (§7.4), the scorer and `score-model`, RIGID and the chain (§7.3), the dummy models, the
+tests Danyal's code must pass (skipping until it exists), checks 51.1 and 52.1. The stored features and `targets.py`
+came with the dataset (S3-M7). The guide `LEARN_THE_MODEL.md` is a deferred Markdown part (S3-M0), and with it the
+`learning:` section's recommended settings.
+
+**Files added.** `mesqsim/learn/{contract,dummies,scorer,rigid}.py`, `tests/test_model_kit.py`,
+`tests/test_learn_rigid.py`. **Changed.** `mesqsim/cli_step3.py` (`score-model`), `mesqsim/validation.py` (51.1,
+52.1).
+
+**What was built.**
+- `contract.py`: `SessionInputs` (one session's stored inputs and masks, never a label; `from_group` reads only the
+  arrays of `INPUT_ARRAYS`), `Prediction` (θ̂, κ̂, uncertain at every step), the `Model` protocol (a `target`, "delta"
+  or "eps", and `predict`), `check_prediction` (shapes, finite, κ ≥ 0, wrapped, boolean flag), `truncate` (the inputs
+  a live stream holds at step k) and `causality_error`.
+- `scorer.py` and `python -m mesqsim score-model --model <module>:<Class> --dataset twin_v1 --split val`: any contract
+  model or the built-ins B0 and O2; every session of the split; each prediction checked; causality measured at three
+  steps per session; the tables of §8.2 (per joint or pod and joint type, and per stratum: time since boot, motion
+  type, slip, suit version, wire mode, HipsAlt), δ̂ = ε̂_c − ε̂_p for a per-pod model, coverage of the 68 % and 95 %
+  intervals, a reliability table, selective risk, µs per 32 Hz step on the named CPU; gate G3's comparison with
+  GEO-ID by joint type once S3-M9's baselines exist; `--through-page` runs §8.3 with the model's ε̂ added.
+- `dummies.py`: `Zeros` (and `ZerosEps`), `Cheat` (reads its own session's labels through `targets.py`).
+- `rigid.py`: RIGID's closed form on world-frame rates (Step 2's `hinge_closed_form`), its causal 32 Hz track (the
+  trailing 30 s of rate pairs between the phone's and HipsAlt's orientation tracks; the last confident estimate held
+  below κ = 100: both `assumption`), the chain ε_c = ε_p + δ_pc and its κ.
+- `tests/test_model_kit.py`: the loss references (SciPy, κ up to 1e7), Danyal's `von_mises_nll` and `cos_loss`, the
+  parameter counts 142,595 and 145,667, the receptive field of 253 steps and causality, a common turn leaving the
+  network's output identical, one batch overfitted and CPU training deterministic, the loader's windows (a fixed seed
+  gives the same batches; every window inside one session of its split, 576 steps, its loss region last; masks the
+  inputs' length), a trained TCN-P following one pod turned alone by 30°, 90° and 180° within 2°; Zeros = B0, Cheat
+  caught, no label in the inputs. The tests of Danyal's code skip until `loader.py`, `models.py`, `loss.py` and
+  `train.py` exist (and `MESQ_TEST_DATASET`, `MESQ_TEST_TCNP` point at a dataset and a trained model).
+
+**Results.**
+- `score-model` on `twin_v1`'s validation split (74 sessions, 3,037,218 steps, about 50 s each): B0 median 22.65°,
+  mean 41.73°, P95 149.04° (by joint type: 2-DoF 24.58°, 3-DoF 20.84°, hinge 22.60°); `Zeros` the same to every
+  digit, causality 0, 0.0 µs a step on an Apple M2 Pro; `ZerosEps` ε median 91.51° (the phone's north is arbitrary)
+  and, on the joints through δ̂ = ε̂_c − ε̂_p, 22.65° again; O2 0.00°. These are the floor any model starts from.
+- 51.1 (a) C5: the short session's stored inputs against the same with every pod and the phone turned by 0.9 rad,
+  3,316 steps: the largest change 2.9e-11 (`x_pod`; float32 storage), the states equal; (b) `Zeros` scores as B0 in
+  every summary number and table cell (median 6.49° on the tiny dataset's test session), causality 0; (c) `Zeros`
+  runs on the inputs with the labels deleted and gives the same answer; `Cheat` scores 0.00° with them and cannot run
+  without them; (d) the loss references agree with the stable closed form within 3.5e-14; (e) Danyal's 10 tests
+  skip (no `loader.py`, `models.py`, `loss.py`, `train.py` yet).
+- 52.1: C = 0.992546, S = 0.121869, ε̂ = 7.000000000°; 20 random noise-free rigid motions within 8.9e-16 rad (the
+  vertical rates equal within 5.9e-15); a rotation about the vertical only: κ = 0.
+
+**Check.** `bash scripts/check_all.sh` at `dde134f` (clean worktree), 2026-11-21 20:01 UTC, 827 s (beside the
+results run): `ruff` clean; `pytest` **438 passed, 10 skipped** (Danyal's); validation **69 passed, 0 failed, 0
+skipped of 69**.
+
+**Decisions.**
+- The loader's tests need one convention Danyal's loader must offer: `WindowDataset.windows`, one
+  `(session_id, start, end)` per item, and items with `x` and `mask` whose last axis is time (written in the test).
+- RIGID's track: the trailing 30 s and the hold below κ = 100 (`assumption`); without HipsAlt nothing links the
+  phone to the pelvis pods, and the chains start from 0.
+- `score-model --through-page` arrives with S3-M9 (`mesqsim/learn/through_page.py`).
