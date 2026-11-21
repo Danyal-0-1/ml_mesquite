@@ -1899,3 +1899,101 @@ skipped of 69**.
 - RIGID's track: the trailing 30 s and the hold below κ = 100 (`assumption`); without HipsAlt nothing links the
   phone to the pelvis pods, and the chains start from 0.
 - `score-model --through-page` arrives with S3-M9 (`mesqsim/learn/through_page.py`).
+
+## 2026-11-21 · S3-M9 (the numbers to beat) · branch `s3-m9` (stacked on `s3-m8`; nothing pushed)
+
+**Previous milestone's commits.** `dde134f`, `ad813ea` on `s3-m8` (local). **This one's code.** `b5325ba`,
+`a401d12`, `bdf77e7`, `598f35b`.
+
+**Plan stated.** One command, `python scripts/make_results_step3.py`, writes `docs/RESULTS_STEP3.md` and its figure:
+the calibration and the data summarised; B0, B1, O1, O2 and GEO-ID on δ, and B0, B1, O1, O2, RIGID+B1 and RIGID+GEO on
+ε, on every test session of `twin_v1` simulated again from its seed; the strata; paired contrasts over the held-out
+subjects (§8.5); the twin ablations (segment frames, analytic fusion); the page-level test (§8.3); the retro path's
+"before" measures (§8.4). Check 53.1 (the same config and seed give the same document).
+
+**Files added.** `mesqsim/results_step3.py`, `mesqsim/learn/through_page.py`, `scripts/make_results_step3.py`,
+`tests/test_results_step3.py`, `tests/test_through_page.py`, `docs/RESULTS_STEP3.md`,
+`docs/figures/results_step3_growth.png`. **Changed.** `mesqsim/validation.py` (53.1).
+
+**What was built.**
+- `results_step3.py`: every test session of a dataset simulated again from its seed and stored conditions (the
+  dataset's own check proves this gives its stored bytes); per method δ̂ (B0, B1, O1, O2 by Step 1's code, GEO-ID by
+  Step 2's) and ε̂ along the tree (B0, B1, O1, O2; RIGID's causal root link with B1's or GEO-ID's δ̂); errors pooled
+  in mergeable histograms (0.02° bins to 30°), per joint type or pod and stratum; each held-out subject's mean error
+  for the paired bootstrap (10,000 resamples) with Holm across four contrasts; the ablations rebuild the sessions
+  with segment frames and with the analytic heading model.
+- `learn/through_page.py`: the page-level test (§8.3): held-out sessions with Nov 14's slips forced; every pod
+  reading turned by its estimate plus the page's constant phone-to-pod turn (`PHONE_TO_POD_RAD`, −90° for velvet:
+  below), at its arrival, so the T-pose snapshot too; the page twin draws again (`session.drive_page`); the BVH is
+  measured by the recordings' own code. A second set-up keeps every slip but zeroes the phone in the T-pose.
+  `score-model --through-page` adds a contract model's ε̂ (a per-joint model's δ̂ composed from RIGID's root).
+- `scripts/make_results_step3.py`: `docs/RESULTS_STEP3.md`, the banner, the calibration and data sections, the tables,
+  the figure `docs/figures/results_step3_growth.png`, the retro path's "before" measures from the recordings.
+
+**The numbers to beat** (`twin_v1`'s 72 test sessions of 36 held-out subjects, 2,504,962 steps; median |error|):
+
+| | B0 | B1 | O1 ¹ | O2 ¹ | GEO-ID | RIGID+B1 | RIGID+GEO |
+|---|---|---|---|---|---|---|---|
+| δ per joint | 23.13° | 23.13° | 16.43° | 0.01° | **13.61°** | | |
+| ε per pod | 83.25° | 83.25° | 14.31° | 0.01° | | 43.25° | **29.69°** |
+
+¹ uses simulator truth.
+- δ by joint type (B1 / GEO-ID): 2-DoF 25.6 / 16.1°, 3-DoF 21.4 / 13.4°, hinge 22.7 / 10.4°. GEO-ID's κ is
+  overconfident on the twin: its 68 % and 95 % intervals hold 27 % and 44 % of its errors (RIGID+GEO's 34 % and 53 %).
+- Paired over subjects (mean error, a − b): B1 − B0 −0.00° (p 0.23); GEO-ID − B1 −13.4° (95 % −17.4 to −9.5);
+  RIGID+B1 − B1 on ε −27.8° (−37.6 to −18.9); RIGID+GEO − RIGID+B1 −9.7° (−13.3 to −6.4): each p = 0.0004 after Holm.
+- **B1 equals B0** on the twin. Each pod's fusion takes its own heading at boot as its north, as the Game Rotation
+  Vector does; switched on in the box, every pod reports a yaw of about 0 there whatever its slot, so the box
+  registration reads zeros and adds nothing, and the slots' own errors become the norths' differences, which no box
+  reading can see. (Step 1's simulator drew the norths at random, and B1 removed them.) The errors come from the
+  slots, the restarts (B1's median 37° with a limb restart, 14° without any slip) and the drift (B1 11° in the first
+  5 min since boot, 25° at 5-15, 36° at 15-35; GEO-ID 10, 14, 17°).
+- RIGID links the phone to HipsAlt within 9.4° (median), and with HipsAlt absent nothing links it (ε 91° there).
+- The ablations: with every pod rigid on its segment the medians move little (δ B0 22.83° against 23.13°, ε RIGID+B1
+  37.75° against 43.25°); with Step 1's analytic heading model instead of VQF in the loop they halve (δ B0 10.39°,
+  O1 5.45°; ε RIGID+B1 24.89°): most of the twin's error is the fusion of its sensor errors, not the skin.
+
+**Through the page** (§8.3; 12 held-out sessions, Nov 14's slips forced; median |drawn − truth|, axial for Φ3):
+
+| set-up, variant | Φ3 left / right shin | both within ±15° | shins disagree | Φ7 | Φ7 within ±20° |
+|---|---|---|---|---|---|
+| Zero at Start, `as_is` | 34.3° / 37.2° | 2 of 12 | 29.7° | 24.3° | 5 of 12 |
+| Zero at Start, + RIGID+B1 | 58.1° / 55.3° | 0 of 12 | 28.2° | 64.6° | 1 of 12 |
+| Zero at Start, + O2 (a perfect TCN-P) | 31.4° / 34.9° | 2 of 12 | 9.8° | 35.4° | 4 of 12 |
+| Zero in the T-pose, `as_is` | 34.3° / 37.2° | 2 of 12 | 29.7° | 4.9° | 12 of 12 |
+| Zero in the T-pose, + RIGID+B1 | 58.0° / 55.4° | 0 of 12 | 28.0° | 63.6° | 1 of 12 |
+| Zero in the T-pose, + O2 | **12.5° / 5.8°** | **7 of 12** | 8.2° | **2.0°** | **12 of 12** |
+
+- **A perfect per-pod model fixes the drawing only if the phone was zeroed in the T-pose.** Turned to the phone's
+  north, the pods share one world and the two shins agree (8-10° apart, against 30°); the drawing is right when, in
+  that world, the wearer faced the page's forward at the T-pose, which a Zero in the T-pose on the belt arranges.
+  Zeroed at Start, in the hand (Nov 14's slip), the phone's north is wherever the hand pointed, and every pod
+  corrected to the phone inherits it, Φ7 included. The Zero also fixes Φ7 by itself (24° to 5°).
+- **The page puts a constant 90° between a pod's frame and the phone's.** It maps a pod's world (+Z up) to three.js
+  by (x, y, z) → (y, z, x) and the phone's ARKit frame by (x, y, z) → (−x, y, −z); read with the repository's ARKit
+  convention, world +X is drawn at three.js (0, 0, 1) for a pod and (−1, 0, 0) for the phone. A pod turned by its
+  true ε alone lands both shins 70-100° off (three sessions, Zero in the T-pose); with the constant (−90°, velvet,
+  `PHONE_TO_POD_RAD`) within about 20°. Every correction through the page needs it; it is a constant of the trees,
+  absorbed as §8.4 absorbs a constant map. Φ3 and Φ7 cannot tell +90° from −90°; the sign follows from the maps.
+- RIGID+B1 makes the drawing worse: B1 carries no information here, so every pod is turned by the root link's
+  estimate, the legs keep their own norths, and the whole drawing turns.
+- The ideal root box (`initialPosition` copied, not aliased) changes the root, not the shins.
+
+**Check.** `bash scripts/check_all.sh` at `bdf77e7` (clean worktree), 2026-11-21 21:10 UTC, 883 s: `ruff` clean;
+`pytest` **445 passed, 10 skipped** (Danyal's); validation **70 passed, 0 failed, 0 skipped of 70** (53.1: the
+reduced results document twice, 123 lines, identical). `598f35b` changes one sentence of the page section's text,
+in the code and in the document alike.
+
+**Results run.** `python scripts/make_results_step3.py --workers 5 --page-sessions 12` from the working tree at
+`bdf77e7` (4,038 s): `docs/RESULTS_STEP3.md` and `docs/figures/results_step3_growth.png`. Two earlier runs were
+discarded: the first drew the page test without the page's constant turn and reported the segment ablation, which
+the session never read, as the surface twin; the second was stopped when that was found.
+
+**Decisions.**
+- GEO-K is not run on the twin: its "true mounting" is a constant pod-to-segment rotation, and the twin's pods sit on
+  moving skin, so the twin has no such constant to give it.
+- The retro path's converter, `twin_v1_bvh` and the before-and-after command (a Should) are not built; the "before"
+  measures are reported from the recordings.
+- Gate G3 (§8.6) needs GEO-ID's numbers on the validation split: `python scripts/make_results_step3.py --split val
+  --no-ablations --no-page --no-figures --out <file>` writes them to `results_step3/twin_v1/baselines_val.csv`,
+  which `score-model` reads; not run here (about 45 minutes), as no learned model exists yet.
