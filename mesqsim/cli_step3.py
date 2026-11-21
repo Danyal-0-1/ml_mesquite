@@ -305,7 +305,7 @@ def cmd_score_model(args) -> int:
     sel = ", ".join(f"{k} {v:.2f}°" for k, v in summ["selective_median_deg"].items())
     print(f"  coverage: 68 % interval {100 * rel[0.68]:.1f} %, 95 % interval {100 * rel[0.95]:.1f} % (κ = 0 claims a "
           f"uniform error); median of the most confident steps kept: {sel}")
-    geo = output_dir() / "results_step3" / f"baselines_{args.split}.csv"
+    geo = output_dir() / "results_step3" / args.dataset / f"baselines_{args.split}.csv"
     if geo.is_file() and len(types) and args.model not in ("B0", "O2"):  # gate G3 (§8.6): ahead of GEO-ID anywhere?
         import pandas as pd
 

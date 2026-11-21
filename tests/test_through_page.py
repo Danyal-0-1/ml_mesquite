@@ -16,14 +16,15 @@ def short():
 
 @pytest.mark.amass
 def test_drive_page_redraws_the_session_exactly_and_a_correction_moves_it(short):
-    from mesqsim.learn.through_page import corrected_bvh
+    from mesqsim.learn.through_page import PHONE_TO_POD_RAD, corrected_bvh
     from mesqsim.twin.config import load_twin_config
 
     cfgt = load_twin_config()
     t = short.labels_steps["t_s"].to_numpy()
     assert corrected_bvh(short, cfgt, "as_is", None, t) == short.bvh
-    assert corrected_bvh(short, cfgt, "as_is", np.zeros((t.size, 15)), t) == short.bvh  # a zero turn is no turn
-    assert corrected_bvh(short, cfgt, "as_is", np.full((t.size, 15), 0.3), t) != short.bvh
+    no_turn = np.full((t.size, 15), -PHONE_TO_POD_RAD)  # the page's constant cancelled: no turn at all
+    assert corrected_bvh(short, cfgt, "as_is", no_turn, t) == short.bvh
+    assert corrected_bvh(short, cfgt, "as_is", no_turn + 0.3, t) != short.bvh
 
 
 @pytest.mark.amass
@@ -36,6 +37,8 @@ def test_the_forced_slips_are_nov14s():
     row, cond = rows[0]
     assert cond["suit"] == "suit_2026_11_14" and cond["hipsalt"] and not cond["protocol"]
     assert all(cond["twin"][k] == v for k, v in NOV14.items()) and cond["twin"]["twin.suit.pods"] == list(range(15))
+    tpose = page_rows(tiny_dataset("a"), "test", 1, zero_at_start=False)[0][1]["twin"]
+    assert tpose["twin.procedure.p_zero_at_start"] == 0.0
     from mesqsim.config import load_config
     from mesqsim.learn.store import build_session
     from mesqsim.paths import REPO_ROOT

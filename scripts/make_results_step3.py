@@ -302,7 +302,7 @@ def main() -> int:
     pooled = pooled_all[None]
     tb = r3.tables(pooled)
     con = r3.contrasts(pooled, CONTRASTS, args.n_boot, args.seed)
-    out_tables = output_dir() / "results_step3"
+    out_tables = output_dir() / "results_step3" / root.name  # one folder per dataset: the scorer's G3 reads it
     out_tables.mkdir(parents=True, exist_ok=True)
     tb.to_csv(out_tables / f"baselines_{args.split}.csv", index=False)
     page_txt = ""
@@ -311,7 +311,9 @@ def main() -> int:
 
         page = page_test(root, args.split, args.page_sessions, args.workers)
         page.to_csv(out_tables / f"page_{args.split}.csv", index=False)
-        page_txt = page_section(page)
+        tpose = page_test(root, args.split, args.page_sessions, args.workers, zero_at_start=False)
+        tpose.to_csv(out_tables / f"page_{args.split}_zero_in_tpose.csv", index=False)
+        page_txt = page_section(page, tpose)
     figs = []
     if not args.no_figures:
         figdir = Path(args.figdir)
@@ -332,7 +334,9 @@ def main() -> int:
             "A heading correction turns each pod about the vertical. It cannot undo the page's halved root (the hips "
             "settle at x* = (100·p + c)/2 because `initialPosition` aliases the hips' own position: a page defect, "
             "drawn the same with every method above), nor a mirrored tree map (a reflection is not a rotation about "
-            "the vertical). Both need the page fixed, not a better estimate.", "", section_retro(real)]
+            "the vertical). Both need the page fixed, not a better estimate. Nor can a correction relative to the "
+            "phone fix a phone zeroed away from the wearing pose (§4): the phone's Zero sets the drawing's north.", "",
+            section_retro(real)]
     Path(args.out).write_text("\n".join(doc), encoding="utf-8", newline="\n")
     print(f"wrote {args.out} ({time.perf_counter() - t0:.0f} s)")
     return 0
