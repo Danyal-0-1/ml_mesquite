@@ -1959,3 +1959,63 @@ def _wire_decimals(quick: bool) -> CheckResult:
     ok = abs(r["twin_median_pct"] - r["real_pct"]) <= 5.0
     return CheckResult(f"{r['suit']}, json_decimals {r['decimals']}: twin Φ8 {r['twin_pct']} %, median "
                        f"{r['twin_median_pct']:.1f} %, against Nov 4's {r['real_pct']:.1f} %", ok)
+
+
+@register(
+    "48.2",
+    "The same seed gives an identical dataset manifest; --extend only appends (Step 3 brief §10, item 9)",
+    "mesqsim.learn.store.generate twice with seed 5 on the tiny dataset of mesqsim.learn.checks (the first subject "
+    "of each split; two training draws, one validation and one test draw; quarter-minute programs; a stand-in "
+    "posterior), comparing MANIFEST.csv; then one copy extended by a factor of 2.",
+    "Every dataset must be reproducible from its seed and config, and growing it on demand (§6.3) must never change "
+    "a session that a model has already been trained or scored on.",
+    "identical manifests; after the extension the stored shards' hashes unchanged, two more draws of the same "
+    "composition, and the dataset verifies",
+    "pytest -m amass tests/test_learn_store.py -k manifest",
+)
+def _dataset_determinism(quick: bool) -> CheckResult:
+    from .learn.checks import manifest_numbers
+
+    r = manifest_numbers()
+    if r is None:
+        return CheckResult(_NEEDS_AMASS, None)
+    ok = (r["identical"] and r["stored_unchanged"] and r["extended_ok"] and r["train_variants"] == [0, 1, 2, 3]
+          and r["compositions"] == 1)  # fmt: skip
+    return CheckResult(f"{r['files']} files ({r['sessions']} sessions), manifests identical {r['identical']}; "
+                       f"extended x2: {r['extended_sessions']} sessions, training draws {r['train_variants']} of "
+                       f"{r['compositions']} composition, {r['kept_shards']} stored shards unchanged "
+                       f"{r['stored_unchanged']}, verifies {r['extended_ok']}", ok)
+
+
+@register(
+    "50.1",
+    "The dataset: manifest, splits, windows, and features equal to a streaming recomputation (Step 3 brief §10, "
+    "item 11)",
+    "mesqsim.learn.store.verify (every file re-hashed against MANIFEST.csv and none unlisted; no subject in two "
+    "splits; ids unique; the nested parts on training subjects only; each session in one shard of its own split, "
+    "contiguous on the 32 Hz grid, every per-step array of its length, so the reference windows of "
+    "mesqsim.learn.store.windows never cross a session or a split and end with their loss region), then one session "
+    "simulated again from its seed and conditions: its stored arrays against the new ones, and its features "
+    "recomputed from only the frames and messages that had arrived at a quarter, a half and the end. On the tiny "
+    "dataset of 48.2, and on twin_v1 under $MESQ_OUTPUT_DIR/datasets when it has been generated.",
+    "A loader, a model and the scorer rely on these rules; and a feature computed differently in the store than live "
+    "would train a model on inputs it never meets.",
+    "every rule holds; the recomputed session identical, its streamed features equal to the stored rows",
+    "python -m mesqsim verify-dataset --name twin_v1; pytest -m amass tests/test_learn_store.py",
+)
+def _dataset_rules(quick: bool) -> CheckResult:
+    from .learn.checks import dataset_numbers
+
+    r = dataset_numbers("twin_v1")
+    if not r:
+        return CheckResult(_NEEDS_AMASS, None)
+    ok, parts = True, []
+    for name, x in r.items():
+        rec = all(x["recomputed"].values())
+        ok &= x["ok"] and rec
+        parts.append(f"{name}: {x['sessions']} sessions, {x['files']} files, bad hashes {len(x['bad_hashes'])}, "
+                     f"subjects in two splits {len(x['subjects_in_two_splits'])}, problems {len(x['problems'])}; "
+                     f"recomputed and streamed identical {rec}")
+    if "twin_v1" not in r:
+        parts.append("twin_v1 not generated here")
+    return CheckResult("; ".join(parts), ok)

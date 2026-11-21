@@ -191,6 +191,79 @@ def cmd_twin_calibrate(args) -> int:
     return 0
 
 
+def _posterior_from(cal_dir):
+    import pandas as pd
+
+    from .twin.calibration import PRIORS
+
+    rep = json.loads((cal_dir / "calibration.json").read_text(encoding="utf-8"))
+    th = pd.read_parquet(cal_dir / "thetas.parquet").merge(pd.read_parquet(cal_dir / "distances.parquet"), on="draw")
+    post = th.sort_values("distance").head(rep["kept"]).reset_index(drop=True)
+    return post, PRIORS, rep
+
+
+def cmd_twin_dataset(args) -> int:
+    import time
+    from pathlib import Path
+
+    from .learn.features import FEATURE_VERSION, LAG_S
+    from .learn.store import DATASET_DEFAULTS, coverage, generate, write_manifest, write_meta
+    from .paths import REPO_ROOT, data_dir
+    from .runs import git_commit
+    from .twin.config import load_twin_config
+
+    cal = Path(args.calibration)
+    post, priors, rep = _posterior_from(cal)
+    root = output_dir() / "datasets" / args.name
+    opts = {"variants": {"train": args.variants_train, "val": args.variants_eval, "test": args.variants_eval},
+            "max_gb": args.max_gb, "max_subjects": args.max_subjects, "length_min": args.length_min}  # fmt: skip
+    t0 = time.perf_counter()
+    idx = generate(root, post, priors, args.seed, args.workers, opts, extend=args.extend)
+    cov = coverage(root)
+    cov.to_csv(root / "coverage_train.csv", index=False)
+    min_w = DATASET_DEFAULTS["min_windows"]
+    mocap = data_dir() / "mesquite-mocap"
+    import subprocess
+
+    mc = subprocess.run(["git", "-C", str(mocap), "rev-parse", "--short", "HEAD"], capture_output=True,
+                        text=True).stdout.strip() or None  # fmt: skip
+    meta = {"name": args.name, "commit": git_commit(), "seed": args.seed, "twin_config_hash": load_twin_config().hash(),
+            "feature_version": FEATURE_VERSION, "feature_lag_s": LAG_S, "mesquite_mocap": mc,
+            "calibration": {"commit": rep.get("commit"), "kept": rep["kept"], "draws": rep["draws"],
+                            "folder": cal.name},
+            "options": DATASET_DEFAULTS | opts, "sessions": int(len(idx)),
+            "hours": {s: float(g["length_s"].sum() / 3600.0) for s, g in idx.groupby("split")},
+            "subjects": {s: int(g["subject"].nunique()) for s, g in idx.groupby("split")}}  # fmt: skip
+    write_meta(root, meta)  # no wall time in it: the same seed must give the same manifest (§10 item 9)
+    man = write_manifest(root, None if args.max_subjects or args.length_min else
+                         REPO_ROOT / "manifests" / f"{args.name}.csv")  # fmt: skip
+    gb = man["size_bytes"].sum() / 1e9
+    print(f"{len(idx)} sessions, {meta['hours']} h, subjects {meta['subjects']}; {gb:.2f} GB; "
+          f"{time.perf_counter() - t0:.0f} s")
+    under = cov[cov["windows"] < min_w]
+    print(f"training windows per stratum (unit x motion x time since boot): min {cov['windows'].min()}, median "
+          f"{int(cov['windows'].median())}; {len(under)} of {len(cov)} strata under {min_w:,}"
+          + (f", in motion types {sorted(set(under['motion']))}" if len(under) else ""))
+    print(f"wrote {root}" + ("" if args.max_subjects or args.length_min else f" (and manifests/{args.name}.csv)"))
+    return 0
+
+
+def cmd_verify_dataset(args) -> int:
+    from .learn.store import recompute_matches, verify
+
+    root = output_dir() / "datasets" / args.name
+    r = verify(root)
+    print(f"{r['sessions']} sessions, {r['files']} files: bad hashes {len(r['bad_hashes'])}, subjects in two splits "
+          f"{len(r['subjects_in_two_splits'])}, problems {len(r['problems'])}")
+    ok = r["ok"]
+    if args.recompute:
+        m = recompute_matches(root, args.recompute)
+        print(f"recomputed {len(m)} sessions from their seeds: identical {sum(m.values())} of {len(m)}")
+        ok = ok and all(m.values())
+    print("verify-dataset", "passes" if ok else "FAILS")
+    return 0 if ok else 1
+
+
 def add_parsers(sub) -> None:
     """Add Step 3's subcommands to the ``python -m mesqsim`` parser."""
     rs = sub.add_parser("real-stats", help="Φ1-Φ12 of the recordings against Step 3 brief §5.3")
@@ -219,3 +292,20 @@ def add_parsers(sub) -> None:
     tc.add_argument("--real-summary", help="a real-stats summary.json (default: analyse the recordings now)")
     tc.add_argument("--resume", help="a twin-calibrate folder: reuse its fit's simulations, redo everything after")
     tc.set_defaults(fn=cmd_twin_calibrate)
+    td = sub.add_parser("twin-dataset", help="generate or extend the training data (S3-M7)")
+    td.add_argument("--name", default="twin_v1")
+    td.add_argument("--calibration", required=True, help="a twin-calibrate output folder (its posterior)")
+    td.add_argument("--extend", type=float, default=0.0,
+                    help="multiply an existing dataset's training sessions by this factor (more draws first)")
+    td.add_argument("--max-subjects", type=int, help="the first subjects of each split only (a pilot)")
+    td.add_argument("--length-min", type=float, help="every program this long, minutes (a pilot)")
+    td.add_argument("--variants-train", type=int, default=4)
+    td.add_argument("--variants-eval", type=int, default=2, help="draws per validation and test subject")
+    td.add_argument("--workers", type=int, default=8)
+    td.add_argument("--seed", type=int, default=1)
+    td.add_argument("--max-gb", type=float, default=20.0, help="stop when the projection exceeds this (rule 5)")
+    td.set_defaults(fn=cmd_twin_dataset)
+    vd = sub.add_parser("verify-dataset", help="re-hash a dataset against its manifest; check its rules (S3-M7)")
+    vd.add_argument("--name", default="twin_v1")
+    vd.add_argument("--recompute", type=int, default=1, help="simulate this many sessions again and compare")
+    vd.set_defaults(fn=cmd_verify_dataset)
