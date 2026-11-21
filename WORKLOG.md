@@ -1585,3 +1585,159 @@ checks 40.2 (the BVH in the page's loader), 43.2 (δ and ε from the tables), 46
 **Commands.** `python -m mesqsim twin-session --seed 1` (twice, `shasum` of every file: identical); `node
 tools/page_golden/load_bvh.mjs` on the twin BVH and on the Nov 13 and Nov 14 BVHs; `pytest tests/test_twin_session.py`
 (13 passed, 46 s); `python -m pytest -q` (data present): **403 passed** in 194 s.
+
+## 2026-11-21 · S3-M6 (the calibration and the gap) · branch `s3-m6` (stacked on `s3-m5`; nothing pushed)
+
+**Previous milestone's commits.** `5880e1d`, `4a03aeb` on `s3-m5` (local).
+
+**Plan stated.** Matching twin sessions for each recording; ABC by rejection (Beaumont et al. 2002) on the four
+calibration recordings of §5.4 (Nov 4, Nov 13 13-41-17 and 13-59-24, Nov 14); the posterior predictive for all seven
+and for Step 1's simulator; the classifier two-sample test (Lopez-Paz and Oquab 2017); gate G-T; H6; check 44.2.
+`docs/step_3/FIDELITY.md` is one of the Markdown parts deferred at S3-M0 (CLAUDE.md rule 14); the ledger it would hold
+is below ("What the twin reproduces").
+
+**Files added.** `mesqsim/twin/{calibration,suits,twin_stats}.py`, `tests/test_twin_calibration.py`.
+**Changed.** `mesqsim/twin/session.py`, `configs/twin.yaml`, `mesqsim/real/{stats,recordings}.py`,
+`mesqsim/twin/{page,session_checks}.py`, `mesqsim/cli_step3.py` (`twin-calibrate`), `mesqsim/validation.py` (44.2).
+
+**What was built.**
+- `suits.py`: the suit versions as overrides of `configs/twin.yaml`: `suit_2026_11_14` (the defaults);
+  `suit_2026_11_13` (the JSON wire, the older recorder, 10 pods plus HipsAlt); and, from the data, `suit_2026_11_04`:
+  Nov 4's BVH carries 13 pods plus HipsAlt (the hands and feet, no right hand: `measured`) and its still frames repeat
+  as only a 2-decimal wire repeats them in the twin, while Nov 13's repeat as only 4 or more decimals do (fitted
+  below). Nov 4 is not the Nov 13 suit.
+- `session.py`: the twin's markers on the pods' sites, for Φ's truth side; the older recorder; a suit without a pod
+  sends nothing; the phone's Start and automatic Zero happen in the hand, and it goes on the belt 12 s before the
+  program (its height, yaw and pitch in the hand drawn: `assumption`); the first T-pose's posture error fades over the
+  blend after it; the page's inputs kept, `drive_page()` to draw them again with every pod turned by an estimate
+  (§8.3), `twin.procedure.force_limb` (a scenario's switch), `page=False` (the training data stores no BVH).
+- `twin_stats.py`: Φ1-Φ12 of a twin session by the recordings' own code (the twin's BVH through `mesqsim.real`), the
+  truth from the twin's markers aligned as the recordings are (record-on + k × 33 ms, then the fitted lag, ±1 s); Φ7
+  of the truth's pelvis path.
+- `calibration.py`: per recording a profile (walking time, true speed, absolute turning rate, suit, pods) and a
+  matching program (the training subject whose walking clips come within 20 % of the speed; legs of 180°/turning-rate
+  seconds, each followed by a 180° turn on the spot to a random side, the turns counted in the walking time; still to
+  the recording's length): KIT 3 (Nov 4, still; 13-41-17, 0.80 against 0.95 m/s), KIT 10 (13-42-39, 13-44-44,
+  13-59-24), KIT 675 (13-47-28) and KIT 9 (Nov 14, 0.37 against 0.35 m/s). The priors of §5.5; one session per
+  recording per draw; the summary statistics (Φ3 per leg bone, axial; Φ4 per shin; Φ5's scale; Φ6; Φ7; Φ8; the root's
+  height; Φ12's count and largest drift); the distance (the RMS over statistics of (sim − real) / scale, the scale the
+  statistic's MAD across the draws but never below its §5.3 tolerance, each squared term capped at 25); the closest
+  10 % as the posterior; the predictive (10 posterior draws per recording; Step 1's simulator: the twin's `analytic`
+  mode at the default θ, through the same page twin); coverage of the central 90 %; the classifier test (logistic
+  regression on 39 features of each 10 s window of drawn rotations, leaving one recording out, AUC with a stratified
+  bootstrap); gate G-T. The runs checkpoint every batch (`fit_partial.pkl`, ...); `--resume` re-uses a run's draws.
+- `real/stats.py`: `static_hold` gives NaN for a pod with under two frames before its first restart.
+- `page.py`: a heading correction, when one is given, applies in either page mode.
+
+**Results (round 3, the calibration of record: `twin_calibration_g4a03aeb-dirty`, 3,149 s on five workers; 200
+draws, the closest 20 kept, best distance 2.02, median 2.46; no session failed).**
+
+| parameter | prior | posterior median | 90 % interval | width of the prior's | label now |
+|---|---|---|---|---|---|
+| gyroscope bias spread b_g,0 (°/min per axis) | 0.02-2, log | 0.115 | 0.026-0.62 | 77 % | assumption |
+| its random walk B_g ((°/s)/√s) | 1e-4-0.1, log | 0.0018 | 0.00014-0.014 | 74 % | assumption |
+| gyroscope scale error (max) | 0-0.03 | 0.019 | 0.0027-0.028 | 95 % | assumption |
+| VQF's tilt time constant τ_acc (s) | 0.1-10, log | 1.89 | 0.36-7.7 | 74 % | fitted, 0.5 s (below) |
+| box-slot error (°, Step 1's key) | 0.5-30, log | 4.0 | 0.56-16.4 | 92 % | Step 1's config unchanged |
+| old wire's decimals, Nov 13 | 2-6 | 4 to 6 in 16 of 20 | (2: 1, 3: 3, 4: 8, 5: 5, 6: 3) | | fitted, 4 |
+| old wire's decimals, Nov 4 | 2-6 | 2 in 8 of 20 | (3: 2, 4: 2, 5: 1, 6: 7) | | fitted, 2 (`suits.py`) |
+| P(a limb restarts after the box) | 0-1 | 0.40 | 0.08-0.87 | 88 % | assumption |
+| P(the Zero is the one at Start) | 0-1 | 0.75 | 0.21-0.93 | 80 % | assumption |
+| P(the camera setting is a quarter turn off) | 0-1 | 0.58 | 0.11-0.85 | 82 % | assumption |
+
+- With seven recordings the continuous parameters are not narrowed (§5.6 expects as much): they stay `assumption`,
+  their intervals in their sources, and the training data draw them from this posterior. The recordings fix the two
+  wire precisions and, read together, the tilt time constant: over round 3's 200 draws, with each recording at its
+  fitted precision, τ_acc = 0.5 s gives exact-repeat shares (Φ8) of 84.9, 15.5 and 46.7 % against Nov 4's 85.6,
+  13-41-17's 15.5 and 13-59-24's 47.8 %, and every other value from 0.15 to 8 s is further off (3-9 tolerances of 3
+  points summed, against 0.6). The ABC's marginal is wider because Φ8 is one statistic of 35.
+- **Predictive checks** (core statistics inside the central 90 % of 10 posterior predictive sessions): twin 26 of 42,
+  Step 1's simulator 14 of 42. By statistic, twin against Step 1 (recordings inside of those that have it): Φ3 left
+  shin 5/6 against 5/6, right shin 3/6 against 1/6; Φ4 left shin 0/3 against 0/3, right 3/3 against 1/3; Φ5's scale
+  1/5 against 1/5; Φ6 3/6 against 2/6; Φ7 6/6 against 3/6; Φ8 5/7 against 1/7. On the check recordings the twin
+  covers 10 of 18, on the calibration recordings 16 of 24.
+- **The classifier test** (188 real and 1,900 simulated 10 s windows): AUC 0.366 (90 % bootstrap 0.312-0.419) for the
+  twin, 0.656 (0.603-0.707) for Step 1's simulator. Below 0.5 is not "more real than real": leaving one recording out,
+  the classifier learns what separates the other recordings from their simulations, and on the held-out recording it
+  points the wrong way. It finds no separating signal for the twin; for Step 1's it does.
+- **Gate G-T passes** (26 ≥ 14; 0.366 ≤ 0.656). **H6 is supported, descriptively** (seven recordings): the twin
+  covers more core statistics than Step 1's simulator and its windows are not told apart from the real ones.
+- **Check 44.2** with the fitted values (Nov 4 at 2 decimals, τ_acc 0.5 s): Φ8 77.3, 86.5 and 99.8 % over three seeds,
+  median 86.5 % against 85.6 %: passes. (At round 2's values, τ_acc 3 s: 91.0, 95.9 and 99.2 %: failed.)
+
+**What the twin reproduces, and what not (the ledger `FIDELITY.md` would hold).**
+- Reproduced: Φ7 on every recording and Φ3 on most, but their predictive spreads are wide (±50-130°: the slips and the
+  box's slot errors make them so), so their coverage says little; Φ8 at the fitted precisions (5 of 7); the Nov 14
+  signature of a Zero taken in the hand (root and Φ7); Φ5's scale on 13-59-24; walking speed on half the takes.
+- Not reproduced: the shins' drift in motion (Φ4 left 0 of 3; the twin's 90 % reaches ±5-10°/min, the recordings
+  ±15-21); Φ5's scale on four of five Nov 13 takes (the twin's predictive interval is ±0.01 wide about the page's
+  halving and misses the recordings' 0.45-0.49 by 0.01-0.05, either way); the drawn root's height (Nov 13 66-83 cm
+  against the twin's roughly 80-110; Nov 4's 50 cm, no phone); Nov 4's drifting Head pod.
+
+**The rounds.**
+- Round 1 (the MAD alone as the scale): its ranking was decided by statistics the twin cannot reach (Nov 4's 14°
+  drift of one still pod, 507 MADs away; Φ8, whose MAD across draws was 0.14 points); its posterior was json_decimals
+  = 2 and the prior for the rest. Its predictive stage then stalled: eight workers of 1-2 GB each beside the
+  machine's other applications filled 37 GB of swap; stopped. Its draws are kept (`calibration_round1_g4a03aeb`).
+- Round 2 (the improvement of §5.7, made before G-T was known): the scale floored at the §5.3 tolerance and each term
+  capped; B_g (the bias's random walk) among the priors, as §5.5 asks (it was missing); Nov 4 its own suit version.
+  Coverage 23 of 42 (Step 1 14), AUC 0.371 (0.318-0.425; Step 1 0.656, 0.603-0.707): G-T passes. Every continuous
+  parameter's 90 % interval spanned 78-100 % of its prior; the two wire precisions were the only thing the recordings
+  narrowed (Nov 4: 2 decimals in 10 of the 20 kept draws; Nov 13: 4-6 in 16).
+- Round 3: check 44.2 failed on round 2's values (Nov 4's Φ8 at 2 decimals 91.0, 95.9 and 99.2 % against 85.6 %).
+  With VQF's tilt time constant τ_acc at 0.5 s, below round 2's prior floor of 1 s, the twin's Nov 4 repeats 86.5 %
+  (seed 2) and its 13-41-17 15.1 % (real 15.5 %; 13.6 % at 2 s): the chip corrects its tilt faster than the prior
+  allowed. τ_acc's prior widened to 0.1-10 s, nothing else changed (the draws are round 2's but for τ_acc; Step 1's
+  predictive sessions, which do not depend on the priors, were re-used).
+
+**Findings, for Danyal.**
+- **Nov 4 is its own suit.** Its BVH carries the hands and feet (13 pods plus HipsAlt; the right hand not), and its
+  still frames repeat 85.6 % of the time, as only the 2 decimals of `Device code/Dongle__JSON.ino:59` (`String` of a
+  float) repeat them; Nov 13's takes repeat 3-48 %, as only 4 or more decimals do. The dongle that recorded Nov 13
+  printed more decimals than the repository's dongle code.
+- **Nov 4 had no phone position.** Its root stands at exactly 50.0 cm, the page's x* = (100·0 + 100)/2: the phone
+  sent no position (or no phone ran). The twin's Nov 4 sessions had one; the root's height is not a core statistic.
+- **The shins' drift on Nov 13 is neither mechanism the brief named** (§4.4, §5.5: "compare the two fits").
+  - Scale error × turning: 13-41-17 turns +23° net over 168 s of walking (its turns cancel), so no scale error can
+    make its −15°/min and +10°/min; 13-59-24 turns +1,432° net, and its shins drift the same way (+15, +13°/min).
+  - A mirrored mounting turns one per-axis bias into opposite drifts: 13-41-17's are opposite, 13-59-24's and Nov 14's
+    are not.
+  - A bias random walk reproduces the walking drift only from B_g ≈ 0.01-0.03°/s/√s (round 2's draws: the shins'
+    |Φ4| median 8.4°/min there, 2.9 below 0.01), where Nov 4's still pods hold 2 of 14 within 1.8° (12 of its 13
+    steady pods did): rest-bias estimation tracks a walk at rest, not in motion, and the two days disagree. Something acts only in motion (the shins' accelerations entering the tilt, vibration, temperature after
+    strapping); the fit cannot tell which, and the drift statistics stay outside the twin's predictive intervals.
+- **Nov 4's one drifting pod.** The Head drifted −0.81°/min at rest (14.1° over 17.4 min) while the others held; the
+  twin's rest-bias estimation holds every still pod, so that pod is beyond it.
+- **Nov 14's root (116 cm) and Φ7 (+64°)** are what the phone's Zero taken in the hand gives in the twin (a first
+  look this milestone: 113 cm and Φ7 −77° with the hand 0.31 m below the belt and turned 81°; the sign follows the
+  hand's turn); the fit's Zero-at-Start probability stays at its prior (median 0.75, 90 % 0.21-0.93). Danyal's answer in S3-M0 (Zero pressed in the T-pose) and this disagree: either it was
+  pressed before the phone reached the belt, or the app's Zero at Start stood.
+
+**Bugs the work caught.**
+- The first T-pose's posture error vanished in one frame at its end (15.2° in the right arm at 1.07 s): faded over the
+  blend after it.
+- `static_hold` raised LinAlgError on a pod that restarts in its first frames: NaN now.
+- The axial statistics' centre (a linear median at ±89° is wrong): the doubled-angle mean.
+- One failing session killed the whole pool: each task records its error (none failed in rounds 2 and 3).
+- Python 3.11's `ProcessPoolExecutor(max_tasks_per_child=...)` did not replace the workers it retired (round 2's first
+  start ran down to one worker): `multiprocessing.Pool(maxtasksperchild=...)`.
+- Round 2's second start was killed with the Claude Code session that started it, an hour in, before its fit wrote
+  anything: the runs now checkpoint every batch and run in their own process session.
+
+**Decisions.**
+- The split of §5.4 as proposed (calibrate on Nov 4, 13-41-17, 13-59-24 and Nov 14; check on 13-42-39, 13-44-44 and
+  13-47-28): Danyal freezes it.
+- 200 prior draws, the closest 10 % kept, 10 predictive draws per recording (the cost, §5.6: about 26 CPU-s a session,
+  940 sessions, 1.1 h on five workers).
+- The distance's floor and cap (`calibration.TOLERANCE`, `Z2_CAP`): `assumption`.
+- A parameter becomes `fitted` when its 90 % interval is under 60 % of its prior's (20 draws drawn at random from the
+  prior span about 85-100 %); every other stays `assumption`, with the fit's interval in its source. The training data
+  draw every one of them from the posterior, widened (§6.2).
+- Step 1's simulator in the comparison is the twin at its defaults in `analytic` mode: Step 1 never had an old wire,
+  so it gets the twin's old wire at the defaults.
+- The S3-M6 runs were made from the working tree at `4a03aeb` with this milestone's code uncommitted (the folder names
+  say `-dirty`); the code is this commit's, the docstrings apart.
+
+**Commands.** `python -m mesqsim twin-calibrate --draws 200 --keep 0.1 --predictive 10 --workers 5 --real-summary
+<real_stats>/summary.json` (round 3, 3,149 s, Step 1's 70 predictive sessions re-used from round 2; round 2 the same on
+four workers, 3,894 s); `pytest tests/test_twin_calibration.py`.

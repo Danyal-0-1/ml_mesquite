@@ -35,7 +35,7 @@ class Recording:
 
 RECORDINGS = (
     Recording("nov04", "Test_Nov4_calibration_tests/MMcap_bvh_2026-11-4-15-29-14.bvh", None, "static",
-              "suit_2026_11_13", "calibrate"),
+              "suit_2026_11_04", "calibrate"),
     Recording("nov13_1341", f"{_N13}/Mesquite/MMcap_bvh_2026-11-13-13-41-17.bvh", _TAKE.format(0, ""), "optitrack",
               "suit_2026_11_13", "calibrate"),
     Recording("nov13_1342", f"{_N13}/Mesquite/MMcap_bvh_2026-11-13-13-42-39.bvh", _TAKE.format(1, "_2026"),

@@ -203,3 +203,24 @@ def bvh_numbers() -> dict | None:
     real_path = data_dir() / "real_suit" / "Test_Nov14_new_code" / "MMcap_bvh_2026-11-14-17-52-25.bvh"
     real = load(real_path) if real_path.is_file() else None
     return {"twin": twin, "frames": frames, "real": real}
+
+
+def nov04_repeats(seeds=(1, 2, 3)) -> dict | None:
+    """Check 44.2: Φ8 of Nov 4's matching session (the static hold) as its suit version is configured, Nov 4's own
+    fitted wire precision among it (:mod:`.suits`), over ``seeds``; and the recording's."""
+    from ..real import analysis, recordings
+    from .calibration import REC, matching_programs, real_profiles, simulate_recording, summary
+    from .suits import suit_overrides
+
+    if not (available() and recordings.available()):
+        return None
+    rec = REC["nov04"]
+    real = analysis.analyse(rec)
+    profiles = real_profiles({"results": {"nov04": real}})
+    program = matching_programs(profiles)["nov04"][0]
+    sims = [simulate_recording("nov04", {}, s, profiles["nov04"], program)["summary"].get("phi8") for s in seeds]
+    vals = [float(v) for v in sims if v is not None and np.isfinite(v)]
+    med = float(np.median(vals)) if vals else float("nan")
+    return {"decimals": suit_overrides(rec.suit_version).get("twin.wire.json_decimals"), "suit": rec.suit_version,
+            "twin_pct": [round(v, 1) for v in vals], "twin_median_pct": med,
+            "real_pct": float(summary(real)["phi8"])}  # fmt: skip

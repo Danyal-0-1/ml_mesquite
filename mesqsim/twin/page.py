@@ -296,7 +296,7 @@ class PageTwin:
         if node is None:
             return
         raw = (float(msg["x"]), float(msg["y"]), float(msg["z"]), float(msg["w"]))
-        if self.mode == "ideal_root_box" and bone != "Hips" and self.heading_correction is not None:
+        if bone != "Hips" and self.heading_correction is not None:  # any mode: the page-level test (§8.3)
             d = self.heading_correction(bone, t_ms)
             raw = q_mul((0.0, 0.0, math.sin(d / 2), math.cos(d / 2)), raw)
         if bone not in self.mac2bones:

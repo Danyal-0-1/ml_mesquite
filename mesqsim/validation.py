@@ -1936,3 +1936,26 @@ def _real_reproduced(quick: bool) -> CheckResult:
     new = sorted(failed - set(recordings.EXPLAINED_DIFFERENCES))
     return CheckResult(f"{len(rows) - len(failed)} of {len(rows)} reference values within tolerance; "
                        f"{len(failed)} explained differences" + (f"; UNEXPLAINED: {new}" if new else ""), not new)
+
+
+@register(
+    "44.2",
+    "The old wire's fitted decimals and Nov 4's exact repeats (Step 3 brief §10, item 5)",
+    "Nov 4's matching session (the static hold: KIT subject 3 still in his T-pose's stance) simulated as its suit "
+    "version suit_2026_11_04 is configured (the JSON wire at the precision S3-M6 fitted on Nov 4, the pods its BVH "
+    "shows), three seeds; its Φ8 (the share of still frames whose recorded rotation repeats exactly) against the "
+    "recording's.",
+    "Φ8 is the wire's fingerprint in a BVH: if the old wire's decimals are right, a still twin repeats its frames as "
+    "often as the still suit did.",
+    "the median over the seeds within 5 points of Nov 4's 85.6 %",
+    "pytest -m real tests/test_twin_calibration.py -k decimals",
+)
+def _wire_decimals(quick: bool) -> CheckResult:
+    from .twin.session_checks import nov04_repeats
+
+    r = nov04_repeats()
+    if r is None:
+        return CheckResult("needs the recordings, " + _NEEDS_AMASS, None)
+    ok = abs(r["twin_median_pct"] - r["real_pct"]) <= 5.0
+    return CheckResult(f"{r['suit']}, json_decimals {r['decimals']}: twin Φ8 {r['twin_pct']} %, median "
+                       f"{r['twin_median_pct']:.1f} %, against Nov 4's {r['real_pct']:.1f} %", ok)

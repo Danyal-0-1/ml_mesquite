@@ -7,6 +7,14 @@
     twin-fusion [--files N]           the fusion's own tilt and heading error on the same walking, with perfect and
                                       with drawn sensors, and how much gyroscope bias each filter removes; writes
                                       twin_fusion_g<commit>/report.json
+    twin-calibrate [--draws N] [--keep Q] [--predictive N] [--workers W] [--real-summary FILE]
+                                      the fit to the recordings (Step 3 brief §5.4-5.7): rejection ABC, posterior
+                                      predictive checks for the twin and Step 1, the classifier test, gate G-T;
+                                      writes twin_calibration_g<commit>/
+    twin-dataset --calibration DIR [--name twin_v1] [--extend N] [--workers W]
+                                      the training data (Step 3 brief §6) under $MESQ_OUTPUT_DIR/datasets/<name>/
+    verify-dataset [--name twin_v1] [--recompute N]
+                                      re-hash it against MANIFEST.csv, check its rules, re-simulate N sessions
     twin-session --seed S [--program protocol|random] [--subject SUBSET/ID] [--length-min M]
                  [--set twin.key=value ...] [--out DIR]
                                       one twin session end to end (Step 3 brief §4.8-4.11): the procedure and its
@@ -144,6 +152,45 @@ def cmd_twin_session(args) -> int:
     return 0 if jc["ok"] else 1
 
 
+def cmd_twin_calibrate(args) -> int:
+    from .real import analysis, recordings
+    from .runs import git_commit
+    from .twin.calibration import run_calibration
+
+    if args.real_summary:
+        real_summary = json.loads(open(args.real_summary, encoding="utf-8").read())
+    else:
+        if not recordings.available():
+            print(f"the recordings are not under {recordings.real_suit_dir()}")
+            return 1
+        real_summary = {"results": {r.id: analysis.analyse(r) for r in recordings.RECORDINGS}}
+    commit = git_commit()
+    out = output_dir() / f"twin_calibration_g{commit[:7]}{'-dirty' if commit.endswith('+dirty') else ''}"
+    out.mkdir(parents=True, exist_ok=True)
+    rep = run_calibration(real_summary, args.draws, args.keep, args.predictive, args.workers, args.seed,
+                          out_dir=out, resume=args.resume)  # fmt: skip
+    tables = rep.pop("tables")
+    for name, df in tables.items():
+        df.to_parquet(out / f"{name}.parquet", index=False)
+    (out / "calibration.json").write_text(json.dumps(rep | {"commit": commit}, indent=1, default=float),
+                                          encoding="utf-8")  # fmt: skip
+    print(f"\nposterior ({rep['kept']} of {rep['draws']} draws; best distance {rep['best_distance']:.2f}, median "
+          f"{rep['median_distance']:.2f}):")
+    for k, v in rep["posterior"].items():
+        if v["kind"] == "choice":
+            print(f"  {k:46s} {v['posterior']}")
+        else:
+            print(f"  {k:46s} median {v['median']:.4g}, 90 % {v['p5']:.4g}-{v['p95']:.4g} (prior {v['prior']}, "
+                  f"width {100 * v['width_share']:.0f} % of the prior's)")
+    g = rep["gate"]
+    a_t, a_s = rep["auc_twin"], rep["auc_step1"]
+    print(f"coverage: twin {g['twin_inside']} of {g['of']}, Step 1 {g['step1_inside']} of {g['of']}; AUC twin "
+          f"{g['twin_auc']:.3f} ({a_t['p5']:.3f}-{a_t['p95']:.3f}), Step 1 {g['step1_auc']:.3f} "
+          f"({a_s['p5']:.3f}-{a_s['p95']:.3f}); gate G-T {'passes' if g['passes'] else 'FAILS'}")
+    print(f"{rep['seconds']:.0f} s; wrote {out}")
+    return 0
+
+
 def add_parsers(sub) -> None:
     """Add Step 3's subcommands to the ``python -m mesqsim`` parser."""
     rs = sub.add_parser("real-stats", help="Φ1-Φ12 of the recordings against Step 3 brief §5.3")
@@ -163,3 +210,12 @@ def add_parsers(sub) -> None:
     ts.add_argument("--set", action="append", help="override one twin parameter: twin.key=value (repeatable)")
     ts.add_argument("--out", help="the session folder")
     ts.set_defaults(fn=cmd_twin_session)
+    tc = sub.add_parser("twin-calibrate", help="fit the twin to the recordings, predictive checks, gate G-T (S3-M6)")
+    tc.add_argument("--draws", type=int, default=200, help="prior draws (default 200)")
+    tc.add_argument("--keep", type=float, default=0.1, help="the share of draws kept as the posterior (default 0.1)")
+    tc.add_argument("--predictive", type=int, default=10, help="posterior predictive sessions per recording")
+    tc.add_argument("--workers", type=int, default=8)
+    tc.add_argument("--seed", type=int, default=1)
+    tc.add_argument("--real-summary", help="a real-stats summary.json (default: analyse the recordings now)")
+    tc.add_argument("--resume", help="a twin-calibrate folder: reuse its fit's simulations, redo everything after")
+    tc.set_defaults(fn=cmd_twin_calibrate)

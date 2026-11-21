@@ -60,8 +60,8 @@ from .program import JoinedMotion
 from .sensors import draw_sensor_errors, ideal_gyro_rad_s, measure
 from .wire import BONE_NAMES, json_line, json_message
 
-__all__ = ["LIMBS", "TwinPod", "TwinPlan", "TwinSession", "plan_twin", "simulate_twin_session",
-           "write_twin_session", "page_assets"]
+__all__ = ["LIMBS", "MARKER_SITES", "TwinPod", "TwinPlan", "TwinSession", "plan_twin", "simulate_twin_session",
+           "write_twin_session", "page_assets", "old_recorder", "drive_page"]
 
 LIMBS = {"left_arm": (3, 4), "right_arm": (6, 7), "left_leg": (9, 10), "right_leg": (12, 13)}
 """The two upper pods of each limb, which one USB slip restarts together."""
@@ -122,6 +122,28 @@ class TwinSession:
     meta: dict
     bvh: str
     plan: TwinPlan
+    truth: dict = field(default_factory=dict)  # t_s (session grid) and the pods' marker sites, for Φ (not written)
+    page_events: list = field(default_factory=list, repr=False)  # (t_arrive_s, kind, id, message): the page's input
+
+
+MARKER_SITES = {"Hips": "HipsAlt", "Spine": "Spine", "Head": "Head", "LeftArm": "LeftArm", "RightArm": "RightArm",
+                "LeftForeArm": "LeftForeArm", "RightForeArm": "RightForeArm", "LeftUpLeg": "LeftUpLeg",
+                "RightUpLeg": "RightUpLeg", "LeftLeg": "LeftLeg", "RightLeg": "RightLeg"}
+"""The twin's markers, named as Φ names the sites (``mesqsim.real.bvh.SITES``): on Nov 13 the markers sat on the
+pods, the pelvis marker on the HipsAlt pod on the lower back (Step 3 brief §5.1), so the twin's are its pod sites."""
+
+
+def old_recorder(bvh: str) -> str:
+    """The older page's recorder (Nov 13): the frame time asserted as 1/30 s and no ';' provenance lines, as the
+    Nov 13 files have them (measured: their headers)."""
+    from .three_math import js_number
+
+    out = []
+    for line in bvh.split("\n"):
+        if line.startswith(";"):
+            continue
+        out.append(f"Frame Time: {js_number(1 / 30)}" if line.startswith("Frame Time:") else line)
+    return "\n".join(out)
 
 
 def _u(rng, lohi) -> float:
@@ -183,6 +205,9 @@ def plan_twin(cfg1: Config, cfgt: Config, seed: int, joined: JoinedMotion, progr
         else:
             limb = list(LIMBS)[int(r_slip.integers(len(LIMBS)))]
             ids = list(LIMBS[limb])
+        forced = cfgt[pr + "force_limb"]
+        if forced:  # a scenario (Step 3 brief §8.3): this limb, the draws above still made
+            limb, ids = forced, list(LIMBS[forced])
         latest = max(pods[i].strap_window_s[1] for i in ids)
         t_r = float(r_slip.uniform(latest + 0.5, max(latest + 0.6, t_prog0 - 3.5)))
         for i in ids:
@@ -197,9 +222,14 @@ def plan_twin(cfg1: Config, cfgt: Config, seed: int, joined: JoinedMotion, progr
         order = ["forward", "right", "backward", "left"]  # a quarter turn to the right per step
         facing = order[(order.index(facing) + (1 if slips["camera_mismatch_deg"] > 0 else -1)) % 4]
     tree = "matched" if slips["tree_mismatch"] else cfgt["twin.app.tree"]
+    r_hand = stream(seed, "twin.hand")  # its own stream: adding the hand left every other draw as it was
+    hand = {"belt_s": float(t_prog0 + cfgt[pr + "phone_belt_at_s"]),
+            "height_m": _u(r_hand, cfgt[pr + "hand_height_m"]),
+            "yaw_rad": float(r_hand.uniform(-1.0, 1.0) * np.deg2rad(cfgt[pr + "hand_yaw_deg"])),
+            "pitch_rad": float(r_hand.uniform(-1.0, 1.0) * np.deg2rad(cfgt[pr + "hand_pitch_deg"]))}
     phone = {"app_start_s": float(t_prog0 + cfgt[pr + "app_start_s"]),
              "zero_request_s": None if slips["zero_at_start"] else float(t_prog0 + cfgt[pr + "zero_at_s"]),
-             "settings": {"facing": facing, "tree": tree}}  # fmt: skip
+             "settings": {"facing": facing, "tree": tree}, "hand": hand}  # fmt: skip
     page = {"tree": cfgt["twin.page.tree"], "mode": cfgt["twin.page.mode"],
             "set_tpose_s": float(t_prog0 + cfgt[pr + "set_tpose_at_s"]),
             "record_on_s": float(t_prog0 + cfgt[pr + "record_at_s"]), "record_off_s": float(t_end),
@@ -211,16 +241,24 @@ def plan_twin(cfg1: Config, cfgt: Config, seed: int, joined: JoinedMotion, progr
 
 
 def _with_posture(joined: JoinedMotion, plan: TwinPlan):
-    """The program's first T-pose with the wearer's posture error on every body joint (a copy of the poses)."""
+    """The program's first T-pose with the wearer's posture error on every body joint (a copy of the poses), faded
+    out over the blend that follows it (smoothstep), so the body leaves the T-pose as smoothly as the program does.
+    (Applied to the T-pose alone, the error vanished in one frame: up to 15° along the arm's chain.)"""
     from scipy.spatial.transform import Rotation
 
     seq = joined.seq
     poses = seq.poses.copy()
     last = joined.pieces[0]["last"]
-    err = Rotation.from_rotvec(np.asarray(plan.posture_rotvec))
+    n_fade = 0
+    while last + 1 + n_fade < poses.shape[0] and joined.transition[last + 1 + n_fade]:
+        n_fade += 1
+    u = np.arange(1, n_fade + 1) / (n_fade + 1)
+    weight = np.r_[np.ones(last + 1), 1.0 - u * u * (3.0 - 2.0 * u)]  # 1 through the T-pose, then down to 0
+    err = np.asarray(plan.posture_rotvec)
     for j in range(1, 22):
-        r = Rotation.from_rotvec(poses[: last + 1, 3 * j : 3 * j + 3])
-        poses[: last + 1, 3 * j : 3 * j + 3] = (err[j - 1] * r).as_rotvec()
+        r = Rotation.from_rotvec(poses[: weight.size, 3 * j : 3 * j + 3])
+        e = Rotation.from_rotvec(weight[:, None] * err[j - 1][None, :])
+        poses[: weight.size, 3 * j : 3 * j + 3] = (e * r).as_rotvec()
     return type(seq)(poses, seq.trans, seq.betas, seq.gender, seq.fps, seq.source)
 
 
@@ -246,6 +284,33 @@ def page_assets(tree_id: str):
     return golden.rig(), case["provenance"]["tree"], case["provenance"]["slerp"]
 
 
+HAND_MOVE_S = 2.0
+HAND_FORWARD_M = 0.3
+
+
+def _phone_in_hand(t, r_belt, p_belt, hand: dict):
+    """Before the phone goes on the belt it is in the hand: turned by ``yaw_rad`` about the vertical and tilted by
+    ``pitch_rad`` about the camera's own horizontal axis (its +Y), ``height_m`` above the belt and 0.3 m in front of
+    it along the camera's view. Over the last 2 s before ``belt_s`` it moves to the belt (smoothstep). ARKit starts
+    in the hand, so its world's origin and north are the hand's; a Zero taken there keeps them (Step 3 brief §2.4)."""
+    from ..conventions import quat_slerp
+
+    t = np.asarray(t, dtype=np.float64)
+    u = np.clip((t - (hand["belt_s"] - HAND_MOVE_S)) / HAND_MOVE_S, 0.0, 1.0)
+    w = u * u * (3.0 - 2.0 * u)
+    if np.all(w >= 1.0):
+        return r_belt, p_belt
+    tilt = np.array([0.0, np.sin(hand["pitch_rad"] / 2), 0.0, np.cos(hand["pitch_rad"] / 2)])
+    r_hand = quat_mul(quat_mul(yaw_quat(np.full(t.size, hand["yaw_rad"])), r_belt), tilt)
+    from ..conventions import quat_rotate
+
+    view = quat_rotate(r_hand, np.array([0.0, 0.0, -1.0]))
+    view[:, 2] = 0.0
+    view /= np.maximum(np.linalg.norm(view, axis=1, keepdims=True), 1e-9)
+    p_hand = p_belt + HAND_FORWARD_M * view + np.array([0.0, 0.0, hand["height_m"]])
+    return quat_slerp(r_hand, r_belt, w), p_hand + w[:, None] * (p_belt - p_hand)
+
+
 def _epochs(cfg1: Config, p: TwinPod, t_end: float, rng) -> list[dict]:
     silence = cfg1["error_model.reboot_silence_s"]
     grid_start = cfg1["timing.grid_start_ms"] / 1000.0
@@ -257,10 +322,12 @@ def _epochs(cfg1: Config, p: TwinPod, t_end: float, rng) -> list[dict]:
 
 
 def simulate_twin_session(cfg1: Config, cfgt: Config, seed: int, joined: JoinedMotion, model, program: str,
-                          pod_turn_rad=None, phone_turn_rad: float = 0.0, room_shift_m=(0.0, 0.0, 0.0)) -> TwinSession:
+                          pod_turn_rad=None, phone_turn_rad: float = 0.0, room_shift_m=(0.0, 0.0, 0.0),
+                          page: bool = True) -> TwinSession:  # fmt: skip
     """Simulate one session. The invariance checks (§4.12) may turn every pod's report by ``pod_turn_rad`` (a number,
     or a dict pod id -> angle) and the phone's messages by ``phone_turn_rad`` about the vertical, or move the room's
-    origin by ``room_shift_m``; every random stream is unaffected by them."""
+    origin by ``room_shift_m``; every random stream is unaffected by them. ``page=False`` skips the page twin (no
+    BVH, no page events): the training data stores none, and every other output is the same."""
     plan = plan_twin(cfg1, cfgt, seed, joined, program)
     rate = plan.rate_hz
     seq = _with_posture(joined, plan)
@@ -285,6 +352,7 @@ def simulate_twin_session(cfg1: Config, cfgt: Config, seed: int, joined: JoinedM
     kph = site["Phone"]
     r_cam = interp_quat(t_grid, tracks.q[k_prog, kph], t_ph)
     p_cam = np.stack([np.interp(t_ph, t_grid, tracks.p[k_prog, kph, a]) for a in range(3)], axis=1) + shift
+    r_cam, p_cam = _phone_in_hand(t_ph, r_cam, p_cam, plan.phone["hand"])
     track = ph.arkit_track(cfgt, t_ph, r_cam, p_cam, stream(seed, "twin.arkit"))
     zero_req = [] if plan.phone["zero_request_s"] is None else [plan.phone["zero_request_s"]]
     run = ph.run_app(cfgt, track, stream(seed, "twin.app"), zero_requests_s=zero_req,
@@ -307,7 +375,11 @@ def simulate_twin_session(cfg1: Config, cfgt: Config, seed: int, joined: JoinedM
     frames, ticks, page_events, first_send = [], [], [], []
     sample_psi = []  # per pod: (t, psi unwrapped per epoch, epoch) of every chip sample
     n_lost = 0
+    active = {int(i) for i in cfgt["twin.suit.pods"]}
     for i in range(N_PODS):
+        if i not in active:  # a suit without this pod: it sends nothing, and the page leaves its bone at rest
+            sample_psi.append([])
+            continue
         p = plan.pods[i]
         name = PODS[i].name
         q_worn = quat_mul(tracks.q[k_prog, site[name]], exp_map(np.asarray(p.strap_error_rotvec)))
@@ -393,13 +465,14 @@ def simulate_twin_session(cfg1: Config, cfgt: Config, seed: int, joined: JoinedM
             "t_host_s": t_arr[r] + plan.host_epoch_s, "pod_id": np.full(r.sum(), i, np.uint8), "batt": batt[r],
             "qx": qi[r, 0], "qy": qi[r, 1], "qz": qi[r, 2], "qw": qi[r, 3], "count": count[r],
             "ms_lo": lab["ms_lo"].to_numpy()[r].astype(np.uint16)}))  # fmt: skip
-        for k in np.flatnonzero(r):
+        ms_lo = lab["ms_lo"].to_numpy()
+        for k in np.flatnonzero(r) if page else ():
             if msgs is not None:
                 m = msgs[k]
             else:
                 m = {"bone": BONE_NAMES[i], "id": i, "batt": int(batt[k]) / 100, "x": int(qi[k, 0]) / Q_SCALE,
                      "y": int(qi[k, 1]) / Q_SCALE, "z": int(qi[k, 2]) / Q_SCALE, "w": int(qi[k, 3]) / Q_SCALE,
-                     "count": int(count[k]), "millis": int(lab["ms_lo"].iloc[k])}  # fmt: skip
+                     "count": int(count[k]), "millis": int(ms_lo[k])}  # fmt: skip
             page_events.append((float(t_arr[k]), 1, i, m))
         lab = lab.drop(columns=["qx_rep", "qy_rep", "qz_rep", "qw_rep"])
         lab.insert(0, "pod_id", np.full(len(lab), i, np.uint8))
@@ -416,29 +489,12 @@ def simulate_twin_session(cfg1: Config, cfgt: Config, seed: int, joined: JoinedM
     ticks_df = pd.concat(ticks, ignore_index=True)
 
     # ------------------------------------------------------------------------------------------- the page twin
-    from .page import PageTwin
-
-    for row in run.messages.itertuples():
-        page_events.append((float(row.t_arrive_s), 0, 99, json.loads(row.line)))
-    page_events.sort(key=lambda e: (e[0], e[1], e[2]))
-    rig, tree, slerp = page_assets(plan.page["tree"])
-    page = PageTwin(rig, tree, slerp, mode=plan.page["mode"])
-    ctl = [(plan.page["set_tpose_s"], "calibrate"), (plan.page["record_on_s"], "record_start")]
-    t_tick = plan.page["record_on_s"] + plan.page["frame_interval_ms"] / 1000.0
-    while t_tick < plan.page["record_off_s"]:
-        ctl.append((t_tick, "record_tick"))
-        t_tick += plan.page["frame_interval_ms"] / 1000.0
-    ctl.sort()
-    bvh, c = "", 0
-    for t_ev, _, _, msg in page_events:
-        while c < len(ctl) and ctl[c][0] <= t_ev:
-            getattr(page, ctl[c][1])() if ctl[c][1] == "calibrate" else getattr(page, ctl[c][1])(ctl[c][0] * 1000.0)
-            c += 1
-        page.handle(dict(msg), t_ev * 1000.0)
-    while c < len(ctl):
-        getattr(page, ctl[c][1])() if ctl[c][1] == "calibrate" else getattr(page, ctl[c][1])(ctl[c][0] * 1000.0)
-        c += 1
-    bvh = page.record_stop(plan.page["record_off_s"] * 1000.0)
+    bvh = ""
+    if page:
+        for row in run.messages.itertuples():
+            page_events.append((float(row.t_arrive_s), 0, 99, json.loads(row.line)))
+        page_events.sort(key=lambda e: (e[0], e[1], e[2]))
+        bvh = _drive_page(plan, page_events, cfgt["twin.page.recorder"])
 
     # ------------------------------------------------------------------------------------------- 32 Hz labels
     t0 = np.ceil((max(first_send) + GRID_MARGIN_S) * GRID_HZ) / GRID_HZ
@@ -490,7 +546,45 @@ def simulate_twin_session(cfg1: Config, cfgt: Config, seed: int, joined: JoinedM
                        "zero_errors": len(run.zero_errors), "page_events": len(page_events)},
             "zeros": [{k: v for k, v in z.items() if k != "cam_q"} for z in run.zeros],
             "arkit": {"a_rad": track.a_rad, "scale_error": track.scale_error, "episodes": track.episodes}}  # fmt: skip
-    return TwinSession(frames_df, ticks_df, joints_df, steps_df, phone_df, labels_phone, session, meta, bvh, plan)
+    truth = {"t_s": t_grid, "record_on_s": plan.page["record_on_s"],
+             "frame_interval_s": plan.page["frame_interval_ms"] / 1000.0,
+             "sites": {m: tracks.p[k_prog, site[n]] + shift for m, n in MARKER_SITES.items()}}  # fmt: skip
+    return TwinSession(frames_df, ticks_df, joints_df, steps_df, phone_df, labels_phone, session, meta, bvh, plan,
+                       truth, page_events)  # fmt: skip
+
+
+def _drive_page(plan: TwinPlan, page_events: list, recorder: str, mode: str | None = None,
+                heading_correction=None) -> str:  # fmt: skip
+    """Every message to the page in arrival order, with the Set T-pose and the recorder's ticks between them: the
+    page twin's BVH."""
+    from .page import PageTwin
+
+    rig, tree, slerp = page_assets(plan.page["tree"])
+    page = PageTwin(rig, tree, slerp, mode=mode or plan.page["mode"], heading_correction=heading_correction)
+    ctl = [(plan.page["set_tpose_s"], "calibrate"), (plan.page["record_on_s"], "record_start")]
+    t_tick = plan.page["record_on_s"] + plan.page["frame_interval_ms"] / 1000.0
+    while t_tick < plan.page["record_off_s"]:
+        ctl.append((t_tick, "record_tick"))
+        t_tick += plan.page["frame_interval_ms"] / 1000.0
+    ctl.sort()
+    c = 0
+    for t_ev, _, _, msg in page_events:
+        while c < len(ctl) and ctl[c][0] <= t_ev:
+            getattr(page, ctl[c][1])() if ctl[c][1] == "calibrate" else getattr(page, ctl[c][1])(ctl[c][0] * 1000.0)
+            c += 1
+        page.handle(dict(msg), t_ev * 1000.0)
+    while c < len(ctl):
+        getattr(page, ctl[c][1])() if ctl[c][1] == "calibrate" else getattr(page, ctl[c][1])(ctl[c][0] * 1000.0)
+        c += 1
+    bvh = page.record_stop(plan.page["record_off_s"] * 1000.0)
+    return old_recorder(bvh) if recorder == "old" else bvh
+
+
+def drive_page(s: TwinSession, cfgt: Config, mode: str | None = None, heading_correction=None) -> str:
+    """The page twin's BVH of session ``s`` again, in ``mode`` (default the session's), every pod reading first turned
+    by ``heading_correction(bone, t_ms)`` radians about its world's +Z (the phone never): the page-level test (Step 3
+    brief §8.3). With neither given it is ``s.bvh`` exactly."""
+    return _drive_page(s.plan, s.page_events, cfgt["twin.page.recorder"], mode, heading_correction)
 
 
 def write_twin_session(folder: Path, s: TwinSession) -> Path:

@@ -4,6 +4,15 @@
 # sweeps change only twin:. Nothing that estimates anything reads this file.
 
 twin:
+  suit:
+    version:
+      value: suit_2026_11_14
+      label: measured
+      source: "Step 3 brief §5.4: suit_2026_11_14 (the binary wire, the page at 87d7c3b, the iOS app; 14 pods plus HipsAlt) or suit_2026_11_13 (the JSON wire, the older recorder, ten pods plus HipsAlt); mesqsim/twin/suits.py holds each version's overrides"
+    pods:
+      value: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+      label: measured
+      source: "the pods the suit wears (Step 1 ids): all 15 on Nov 14; on Nov 13 no hand or foot pods, whose BVH channels are exactly 0 (Step 3 brief §2.3)"
   body:
     pod_frame:
       value: surface
@@ -36,7 +45,7 @@ twin:
     gyro_scale_max:
       value: 0.015
       label: datasheet
-      source: "S_g: each axis uniform within ±this; DS-000189 rev 1.3 (Tables 1 and 5) as quoted by the Step 1 brief §4.3 (configs/default.yaml error_model.scale_factor_max)"
+      source: "S_g: each axis uniform within ±this; DS-000189 rev 1.3 (Tables 1 and 5) as quoted by the Step 1 brief §4.3 (configs/default.yaml error_model.scale_factor_max); S3-M6 (ABC on Nov 4, Nov 13 13-41-17 and 13-59-24, Nov 14, round 3) did not narrow it: posterior median 0.0194, 90 % 0.0027 to 0.0283 of the prior 0 to 0.03 (95 % of its width); the training data draw it from that posterior"
     gyro_misalign_max_deg:
       value: 1.0
       label: assumption
@@ -44,12 +53,12 @@ twin:
     gyro_bias_sigma_deg_per_min:
       value: 0.2
       label: assumption
-      source: "b_g,0, the residual bias after the chip's own calibration: each axis ~ N(0, σ). Step 1's heading-drift spread (configs/default.yaml error_model.drift_sigma_deg_per_min) applied per axis until S3-M6 fits it (Step 3 brief §5.5)"
+      source: "b_g,0, the residual bias after the chip's own calibration: each axis ~ N(0, σ). Step 1's heading-drift spread (configs/default.yaml error_model.drift_sigma_deg_per_min) applied per axis until S3-M6 fits it (Step 3 brief §5.5); S3-M6 (ABC on Nov 4, Nov 13 13-41-17 and 13-59-24, Nov 14, round 3) did not narrow it: posterior median 0.115, 90 % 0.0255 to 0.618 of the prior 0.02 to 2 (77 % of its width); the training data draw it from that posterior"
       sweep: [0.05, 0.2, 1.0, 2.0]
     gyro_bias_walk_deg_s_sqrt_s:
       value: 0.0
       label: assumption
-      source: "B_g, the density of b_g's random walk ((°/s)/√s): none until S3-M6 fits it (Step 3 brief §5.5)"
+      source: "B_g, the density of b_g's random walk ((°/s)/√s): none until S3-M6 fits it (Step 3 brief §5.5); S3-M6 (ABC on Nov 4, Nov 13 13-41-17 and 13-59-24, Nov 14, round 3) did not narrow it: posterior median 0.00182, 90 % 0.000139 to 0.0139 of the prior 0.0001 to 0.1 (74 % of its width); the training data draw it from that posterior"
       sweep: [0.0, 1.0e-4, 1.0e-3]
     accel_noise_ug_sqrt_hz:
       value: 200.0
@@ -85,9 +94,9 @@ twin:
       label: assumption
       source: "Step 3 brief §4.5. The DMP's Game Rotation Vector is closed; VQF in six-axis mode (Laidig and Seel 2023, the pinned vqf package) stands in for it. analytic: Step 1's model unchanged; mahony: a second filter, so no result hangs on one"
     vqf_tau_acc_s:
-      value: 3.0
-      label: assumption
-      source: "VQF's tilt-correction time constant: the vqf package's default (VQFParams.tauAcc); fitted in S3-M6 (Step 3 brief §5.5)"
+      value: 0.5
+      label: fitted
+      source: "VQF's tilt time constant, the chip's tilt correction (Step 3 brief §4.5, §5.5). Fitted in S3-M6 on the exact-repeat shares (Φ8) of the calibration recordings, over round 3's 200 draws with each recording at its fitted wire precision (Nov 4 at 2 decimals, Nov 13 at 4-6): at 0.5 s the twin repeats 84.9, 15.5 and 46.7 % against Nov 4's 85.6, 13-41-17's 15.5 and 13-59-24's 47.8 %, and every other value from 0.15 to 8 s lies further off (3 to 9 tolerances of 3 points, summed, against 0.6). The ABC's 20 closest draws span 0.357 to 7.68 s (median 1.89 s): one statistic among 35 does not move its marginal. Round 2's prior floor of 1 s had excluded the value"
       sweep: [1.0, 3.0, 10.0]
     vqf_rest_bias:
       value: true
@@ -111,9 +120,9 @@ twin:
       label: firmware
       source: "binary16: the new suit's 16-byte frame (new_device_code/Pod_Watch_Binary, mesqsim/codec.py); json: the old suit's line (Device code/Dongle__JSON.ino:59), suit_2026_11_13 (Step 3 brief §4.6, §5.4)"
     json_decimals:
-      value: 2
-      label: firmware
-      source: "Device code/Dongle__JSON.ino:59 joins the floats into an Arduino String, which prints 2 decimals; Nov 13's exact repeats suggest more, so S3-M6 fits it from Φ8 (Step 3 brief §4.6, §5.5)"
+      value: 4
+      label: fitted
+      source: "the old suit's dongle on Nov 13 (suit_2026_11_13). Device code/Dongle__JSON.ino:59 joins the floats into an Arduino String, which prints 2 decimals; S3-M6's calibration (ABC, round 3) keeps 2 decimals in 1, 3 decimals in 3, 4 decimals in 8, 5 decimals in 5, 6 decimals in 3 of its 20 closest draws: 4 to 6 (which Φ8 cannot tell apart; 4 is the least), so that dongle printed more. Nov 4's printed 2 (suit_2026_11_04, mesqsim/twin/suits.py)"
       sweep: [2, 3, 4, 5, 6]
     json_send_min_ms:
       value: 32
@@ -263,6 +272,22 @@ twin:
       value: -20.0
       label: assumption
       source: "the phone app's Start (its AR session) at this time from the program's start, during the strapping; its automatic Zero follows at the first normal frame"
+    phone_belt_at_s:
+      value: -12.0
+      label: assumption
+      source: "the phone app starts with the phone in the hand; it goes on the belt at this time from the program's start (8 s after the app's Start), moving over its last 2 s (Step 3 brief §2.4 item 3)"
+    hand_height_m:
+      value: [-0.5, 0.4]
+      label: assumption
+      source: "the phone's height in the hand at the app's Start, relative to its belt position, uniform: lower (a table) or higher (the chest)"
+    hand_yaw_deg:
+      value: 180.0
+      label: assumption
+      source: "its turn about the vertical in the hand relative to how it is worn, uniform within ±this"
+    hand_pitch_deg:
+      value: 20.0
+      label: assumption
+      source: "its tilt in the hand about the camera's horizontal axis, uniform within ±this (the app's Zero needs a view within 72.5° of level)"
     zero_at_s:
       value: 1.0
       label: assumption
@@ -286,15 +311,19 @@ twin:
     p_limb_restart:
       value: 0.1
       label: assumption
-      source: "slip: after the box, a USB cable restarts one pod or both upper pods of one limb (half each), at a random moment between its strapping and the T-pose; it reboots with a new north wherever it faces (Nov 14's left leg; to be fitted, weakly, in S3-M6)"
+      source: "slip: after the box, a USB cable restarts one pod or both upper pods of one limb (half each), at a random moment between its strapping and the T-pose; it reboots with a new north wherever it faces (Nov 14's left leg; to be fitted, weakly, in S3-M6); S3-M6 (ABC on Nov 4, Nov 13 13-41-17 and 13-59-24, Nov 14, round 3) did not narrow it: posterior median 0.397, 90 % 0.0821 to 0.872 of the prior 0 to 1 (88 % of its width); the training data draw it from that posterior"
     p_zero_at_start:
       value: 0.1
       label: assumption
-      source: "slip: the phone's Zero is the automatic one at Start, not taken in the T-pose"
+      source: "slip: the phone's Zero is the automatic one at Start, not taken in the T-pose; S3-M6 (ABC on Nov 4, Nov 13 13-41-17 and 13-59-24, Nov 14, round 3) did not narrow it: posterior median 0.749, 90 % 0.212 to 0.93 of the prior 0 to 1 (80 % of its width); the training data draw it from that posterior"
     p_camera_mismatch:
       value: 0.05
       label: assumption
-      source: "slip: the app's 'Rear camera looks' setting is a quarter turn off the way the phone is worn (±90°, equally)"
+      source: "slip: the app's 'Rear camera looks' setting is a quarter turn off the way the phone is worn (±90°, equally); S3-M6 (ABC on Nov 4, Nov 13 13-41-17 and 13-59-24, Nov 14, round 3) did not narrow it: posterior median 0.58, 90 % 0.111 to 0.853 of the prior 0 to 1 (82 % of its width); the training data draw it from that posterior"
+    force_limb:
+      value: null
+      label: assumption
+      source: "a scenario's switch, not a draw: when p_limb_restart fires, restart this limb (left_arm, right_arm, left_leg or right_leg) instead of the drawn pod or limb (the page-level test of Step 3 brief §8.3 forces Nov 14's left leg)"
     p_tree_mismatch:
       value: 0.05
       label: assumption
@@ -316,6 +345,10 @@ twin:
       value: 33.0
       label: measured
       source: "Step 3 brief §4.10, Φ10: the recorder's frame interval on Nov 14, 33.0 ms mean (the BVH header)"
+    recorder:
+      value: new
+      label: measured
+      source: "new: the page at 87d7c3b (the measured frame time and three ';' provenance lines, Nov 14); old: the Nov 13 page, which asserts 1/30 s and writes no ';' lines (the Nov 13 headers); both record every 33.0 ms (S3-M1's clock fit)"
 
 # Danyal's settings for the models Danyal writes (Step 3 brief §7): empty on purpose. The guide's recommendations
 # go here as comments, labelled assumption, when the guide is written.

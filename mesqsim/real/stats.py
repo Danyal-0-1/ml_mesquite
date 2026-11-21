@@ -262,6 +262,10 @@ def static_hold(bvh: Bvh, bones: list[str], fk=None) -> dict:
     pods = {}
     for b in bones:
         q = g[w, bvh.index(b)]
+        if q.shape[0] < 2:  # a restart in the first frames leaves nothing to fit (twin sessions can do this)
+            pods[b] = {"drift_deg_per_min": float("nan"), "drift_over_window_deg": float("nan"),
+                       "max_dev_deg": float("nan"), "noise_deg": float("nan"), "restarts_s": restarts[b]}
+            continue
         h = np.rad2deg(np.unwrap(heading_rad(q)))
         drift = float(np.polyfit(t_min, h - h[0], 1)[0])
         dev = np.rad2deg(geodesic_angle_rad(quat_mul(quat_conj(np.broadcast_to(q[0], q.shape)), q)))
