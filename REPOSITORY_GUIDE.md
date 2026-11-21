@@ -11,8 +11,8 @@ in steps, and each step is one release on the repository's only branch, `main`.
 | next | Step 4, fusion | not started. Danyal's learned models come first; the plan is item 10 of the Step 3 report (the last entry of [WORKLOG.md](WORKLOG.md)) | | | |
 
 [CHANGELOG.md](CHANGELOG.md) lists each release with its milestones. [WORKLOG.md](WORKLOG.md) has one entry per
-milestone: what changed, the commands that were run, and the decisions. Step 3 stays local and is not pushed
-([CLAUDE.md](CLAUDE.md) rule 2).
+milestone: what changed, the commands that were run, and the decisions. Everything, Step 3 included, has been on
+GitHub since 2026-11-21 ([CLAUDE.md](CLAUDE.md) rule 2).
 
 ## 1. The layout
 
@@ -181,10 +181,8 @@ data file or any file over 5 MB is committed.
   Commits prefixes (`docs:`, `fix:`, `chore:`, `test:`).
 - **Looking around.** `git log --oneline step2..step3` lists Step 3's work. `git show step3-m7` shows one milestone.
   `git switch --detach v2.0.0` checks out the tree as it was at the end of Step 2 (`git switch main` returns).
-- **GitHub** (`origin`, public). `origin/main` is at `step2`, and GitHub has the tags `step1`, `step2` and
-  `step2-m1` … `step2-m7`. Everything else (Step 3 and the tags added on 2026-11-21) exists only on this machine. The
-  remote branches `m5-results` (still GitHub's default branch) and `s2-m0` … `s2-m8` are all merged into
-  `origin/main`. Deleting them, and pushing Step 3, are Danyal's decisions.
+- **GitHub** (`origin`, public): one branch, `main` (the default branch), and every tag. The merged branches
+  `m5-results` and `s2-m0` … `s2-m8` were deleted on 2026-11-21; pull requests #1 to #7 still show what each merged.
 
 ## 8. Where to start
 

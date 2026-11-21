@@ -2226,3 +2226,32 @@ where the briefs put them. Push nothing.
 `tests/test_repo_guide.py`; the 10 skipped tests are Danyal's model tests, which wait for Danyal's code. Validation:
 70 of 70 checks pass. The new `docs/VALIDATION.md` differs from S3-M10's only in its header (run time and commit).
 This entry's commit changes only `WORKLOG.md` and that header.
+
+## 2026-11-21 · Everything published: Step 3 pushed, GitHub reduced to `main`
+
+**Previous entry's commits.** `2625be6`, `aa299b3` (tag `v3.0.0`), local until this entry.
+
+**Request (the person running the session).** Push all the changes to the repository, delete every other branch on
+GitHub, and pull the latest version back here. This replaces the answer of 2026-11-17 on Step 3 (rule 2): Step 3 is
+now public. `CLAUDE.md` rule 2 records the change.
+
+**Before publishing.**
+- Every commit to push carries an author and committer email that the public history already shows.
+- `git grep` finds no home-folder path, credential or private email in the files at `main`, the briefs included.
+- The largest file that Step 3 adds is `tests/fixtures/app_golden/app_golden.json`, at 1.26 MB.
+- `final_paper/` and the other local-only files are excluded from git and stay on this machine.
+
+**On GitHub.**
+- `gh repo edit --default-branch main`: the default branch was `m5-results`.
+- `git push origin --delete m5-results s2-m0 s2-m1 s2-m2 s2-m4 s2-m6 s2-m7 s2-m8`. Before the deletion, each branch
+  was checked to be an ancestor of `origin/main`. Pull requests #1 to #7 were all merged, none was open, and no branch
+  was protected.
+- The local pre-push hook that kept Step 3 local was removed.
+- `git push origin main --follow-tags` sent this commit, every Step 3 commit and every annotated tag. That is
+  `step2-m0`, `step2-m8`, `step3`, `step3-m0` … `step3-m10`, `v1.0.0`, `v2.0.0` and `v3.0.0`, beside the tags GitHub
+  already had. The push is a fast-forward of `main` from `fc89dbb`, with no force.
+- Then `git fetch --prune`, `git remote set-head origin --auto` and `git pull --ff-only`.
+
+**Check.** This entry changes only Markdown: `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `REPOSITORY_GUIDE.md` and
+this log. `pytest tests/test_repo_guide.py` and `ruff check .` pass. The full check ran at `2625be6`, in the
+previous entry.

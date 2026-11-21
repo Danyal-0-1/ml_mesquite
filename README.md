@@ -3,7 +3,7 @@
 Research repository for Danyal Khorami's Mesquite project. It is public by Danyal's choice (2026-11-12); licensed
 data never enter it. The specifications are the three briefs: [docs/brief/STEP1_BRIEF.md](docs/brief/STEP1_BRIEF.md)
 (done, release `v1.0.0`), [docs/brief/STEP2_BRIEF.md](docs/brief/STEP2_BRIEF.md) (done, `v2.0.0`) and
-[docs/brief/STEP3_BRIEF.md](docs/brief/STEP3_BRIEF.md) (done, `v3.0.0`, kept local). The rules for every work
+[docs/brief/STEP3_BRIEF.md](docs/brief/STEP3_BRIEF.md) (done, `v3.0.0`). The rules for every work
 session are in [CLAUDE.md](CLAUDE.md). **New here? Read [docs/MUST_KNOW.md](docs/MUST_KNOW.md) first, then learn the
 project from [docs/explain/README.md](docs/explain/README.md)** (five files, from a mental picture to the theory). The
 two datasets are explained in [project_explanations/DATASETS.md](project_explanations/DATASETS.md). **Where is
@@ -84,7 +84,7 @@ every entry).
 |---|---|---|---|---|
 | `v1.0.0` | Step 1: data, environment, simulator, Step 0, baselines B0, B1, O1, O2 | done 2026-11-16; on GitHub | `step1` | [docs/RESULTS_STEP1.md](docs/RESULTS_STEP1.md) |
 | `v2.0.0` | Step 2: the geometric estimator (GEO-K, GEO-ID) and the explanation pipeline | done 2026-11-18; on GitHub (pull requests #1 to #7) | `step2`, `step2-m0` … `step2-m8` | [docs/RESULTS_STEP2.md](docs/RESULTS_STEP2.md) |
-| `v3.0.0` | Step 3: the Mesquite twin calibrated on Danyal's recordings, the training data `twin_v1`, the model kit, the numbers to beat | done 2026-11-21; **local only** (Danyal's answer of 2026-11-17) | `step3`, `step3-m0` … `step3-m10` | [docs/RESULTS_STEP3.md](docs/RESULTS_STEP3.md) |
+| `v3.0.0` | Step 3: the Mesquite twin calibrated on Danyal's recordings, the training data `twin_v1`, the model kit, the numbers to beat | done 2026-11-21; on GitHub (published 2026-11-21) | `step3`, `step3-m0` … `step3-m10` | [docs/RESULTS_STEP3.md](docs/RESULTS_STEP3.md) |
 | next | Step 4: fusion of geometry and learning | not started; Danyal's learned models first | | |
 
 **Tags.** `v<step>.0.0` is a release; `step<k>` marks the end of step k; `step<k>-m<n>` marks one milestone.

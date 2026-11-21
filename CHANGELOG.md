@@ -8,15 +8,20 @@ milestone has a tag; [WORKLOG.md](WORKLOG.md) has the full entry for each one.
 
 ## [Unreleased]
 
-Nothing yet. Step 4, the fusion of geometry and learning, has not started. Danyal's learned models
+### Changed
+- Step 3 is published. On 2026-11-21 the person running the session had `main` and every tag pushed to GitHub.
+  GitHub's default branch is now `main`, and its merged branches (`m5-results`, `s2-m0` … `s2-m8`) were deleted.
+
+Step 4, the fusion of geometry and learning, has not started. Danyal's learned models
 (`mesqsim/learn/{loader,models,loss,train}.py`) come first.
 
 ## [3.0.0] - 2026-11-21 - Step 3: the Mesquite twin, `twin_v1` and the model kit
 
 Tags: `v3.0.0` (this release, with the repository organised), `step3` (the end of the Step 3 work), `step3-m0` …
 `step3-m10`. Specification: [docs/brief/STEP3_BRIEF.md](docs/brief/STEP3_BRIEF.md). Results:
-[docs/RESULTS_STEP3.md](docs/RESULTS_STEP3.md). The report is WORKLOG entry S3-M10. **Local only:** Danyal's answer of
-2026-11-17 keeps Step 3 off the public repository until Danyal says otherwise ([CLAUDE.md](CLAUDE.md) rule 2).
+[docs/RESULTS_STEP3.md](docs/RESULTS_STEP3.md). The report is WORKLOG entry S3-M10. **Local only at release:**
+Danyal's answer of 2026-11-17 kept Step 3 off the public repository ([CLAUDE.md](CLAUDE.md) rule 2). It was published
+later the same day (see Unreleased).
 
 ### Added
 - **S3-M0** (`step3-m0`): Step 3 starts. The brief is saved, `CLAUDE.md` gets the Step 3 rules, and the recordings'

@@ -17,8 +17,9 @@ they/them). A collaborator or Danyal runs the sessions. Three briefs are the spe
 tag `step3` (`09da94f`, 2026-11-21). On 2026-11-21 the person running the session asked for one branch: `main` was
 fast-forwarded to `step3`, every other local branch and worktree was removed, each milestone kept a tag, and the
 releases were tagged `v1.0.0`, `v2.0.0` and `v3.0.0`. [REPOSITORY_GUIDE.md](REPOSITORY_GUIDE.md) maps every file to
-its step; [CHANGELOG.md](CHANGELOG.md) lists the releases. Local `main` is ahead of `origin/main` by Step 3, which stays
-local (rule 2); on Danyal's Mac a local pre-push hook (`.git/hooks/pre-push`, not in the repository) refuses to push it.
+its step; [CHANGELOG.md](CHANGELOG.md) lists the releases. Later that day everything was published (rule 2): `main` and
+every tag were pushed, GitHub's default branch became `main`, and its merged branches (`m5-results`, `s2-m0` …
+`s2-m8`) were deleted, so `main` is the only branch on GitHub too.
 
 ## Rules
 
@@ -29,7 +30,8 @@ local (rule 2); on Danyal's Mac a local pre-push hook (`.git/hooks/pre-push`, no
 2. **Visibility and disclosure.** The repository is public: Danyal removed the private notice on 2026-11-12.
    - Step 2's estimator code: answered on 2026-11-16, push to the public repository.
    - Step 3's code (the twin, the numbers fitted from Danyal's recordings, the model kit): answered on 2026-11-17,
-     **keep it local.** Commit on local branches only, and push nothing of Step 3 until the person says otherwise.
+     keep it local. **Changed on 2026-11-21** by the person running the session: push everything. Step 3 (`main` and
+     every tag) was pushed to the public repository that day.
 3. **No data in git.** Never commit Danyal's recordings (BVH, Motive CSV and TAK, the phone app's logs) or anything
    derived from them row by row; datasets, body-model files, downloaded archives, generated datasets, trained weights,
    model outputs or credentials. The AMASS and SMPL+H licences forbid redistribution.
