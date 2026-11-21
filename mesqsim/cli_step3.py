@@ -233,7 +233,8 @@ def cmd_twin_dataset(args) -> int:
                             "folder": cal.name},
             "options": DATASET_DEFAULTS | opts, "sessions": int(len(idx)),
             "hours": {s: float(g["length_s"].sum() / 3600.0) for s, g in idx.groupby("split")},
-            "subjects": {s: int(g["subject"].nunique()) for s, g in idx.groupby("split")}}  # fmt: skip
+            "subjects": {s: int((g["subset"] + "/" + g["subject"].astype(str)).nunique())
+                         for s, g in idx.groupby("split")}}  # fmt: skip
     write_meta(root, meta)  # no wall time in it: the same seed must give the same manifest (§10 item 9)
     man = write_manifest(root, None if args.max_subjects or args.length_min else
                          REPO_ROOT / "manifests" / f"{args.name}.csv")  # fmt: skip

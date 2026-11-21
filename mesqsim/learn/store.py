@@ -197,10 +197,10 @@ PER_STEP_ARRAYS = ("t_s", "x_pod", "x_joint", "x_phone", "x_pod_phone", "state_p
 
 
 def verify(root: Path) -> dict:
-    """Re-hash every file against MANIFEST.csv (and no file missing from it); no subject in two splits; session ids
-    unique; the nested parts only on training subjects; every session inside one shard of its own split, its steps
-    contiguous on the 32 Hz grid and every per-step array of that length, so a window cut by step index (see
-    :func:`windows`) never crosses a session or a split and its inputs end with its loss region."""
+    """Re-hash every file against MANIFEST.csv (and no file missing from it); no subject (its subset and id) in two
+    splits; session ids unique; the nested parts only on training subjects; every session inside one shard of its own
+    split, its steps contiguous on the 32 Hz grid and every per-step array of that length, so a window cut by step
+    index (see :func:`windows`) never crosses a session or a split and its inputs end with its loss region."""
     import h5py
 
     man = pd.read_csv(root / "MANIFEST.csv")
@@ -209,7 +209,8 @@ def verify(root: Path) -> dict:
     unlisted = sorted(str(p.relative_to(root)) for p in root.rglob("*")
                       if p.is_file() and p.name != "MANIFEST.csv" and str(p.relative_to(root)) not in listed)
     idx = pd.read_parquet(root / "index.parquet")
-    two = idx.groupby("subject")["split"].nunique()
+    who = idx["subset"].astype(str) + "/" + idx["subject"].astype(str)  # ids repeat across subsets: CMU and KIT 10
+    two = idx.assign(who=who).groupby("who")["split"].nunique()
     mixed = sorted(two[two > 1].index)
     problems = [f"{k}: id twice" for k, n in idx["id"].value_counts().items() if n > 1]
     if not idx.loc[idx["split"] == "train", "part"].isin(PARTS).all() or (idx.loc[idx["split"] != "train", "part"]
@@ -250,13 +251,18 @@ OVERHEAD_S = 110.0
 before the program, and the last clip running past the drawn length)."""
 
 
-def projected_gb(plan: pd.DataFrame, cfgt, length_min: float | None = None) -> float:
-    """The disk a plan will take, from each composition's drawn length (as :func:`mesqsim.twin.program.make_program`
-    draws it) and :data:`BYTES_PER_STEP`."""
+def planned_steps(plan: pd.DataFrame, cfgt, length_min: float | None = None) -> float:
+    """The 32 Hz steps a plan will hold, from each composition's drawn length (as
+    :func:`mesqsim.twin.program.make_program` draws it) and :data:`OVERHEAD_S`."""
     lo, hi = cfgt["twin.program.length_min"]
     minutes = [float(stream(int(s), "twin.program").uniform(lo, hi)) if length_min is None else float(length_min)
                for s in plan["program_seed"]]  # fmt: skip
-    return float(sum((60.0 * m + OVERHEAD_S) * 32.0 * BYTES_PER_STEP for m in minutes) / 1e9)
+    return float(sum((60.0 * m + OVERHEAD_S) * 32.0 for m in minutes))
+
+
+def projected_gb(plan: pd.DataFrame, cfgt, length_min: float | None = None) -> float:
+    """The disk a plan will take: :func:`planned_steps` at :data:`BYTES_PER_STEP`."""
+    return planned_steps(plan, cfgt, length_min) * BYTES_PER_STEP / 1e9
 
 
 def _shard_task(args):
@@ -331,7 +337,9 @@ def generate(root: Path, posterior: pd.DataFrame, priors, seed: int, workers: in
     if o.get("length_min") is not None:
         plan["length_min"] = float(o["length_min"])
     have_gb = sum(p.stat().st_size for p in (root / "shards").glob("*.h5")) / 1e9 if not old.empty else 0.0
-    proj = projected_gb(plan, load_twin_config(), o.get("length_min"))
+    cfgt = load_twin_config()
+    steps_planned = planned_steps(plan, cfgt, o.get("length_min"))
+    proj = steps_planned * BYTES_PER_STEP / 1e9
     log(f"{len(plan)} new sessions, about {proj:.1f} GB (with {have_gb:.1f} GB already there)")
     if have_gb + proj > o["max_gb"]:
         raise RuntimeError(f"the dataset would take about {have_gb + proj:.1f} GB, over the {o['max_gb']} GB budget "
@@ -363,7 +371,9 @@ def generate(root: Path, posterior: pd.DataFrame, priors, seed: int, workers: in
             if k + 1 in (2, 10) or (k + 1) % 20 == 0 or k + 1 == len(todo):
                 done = sum(p.stat().st_size for p in (root / "shards").glob("*.h5") if p.name in new) / 1e9
                 steps = sum(i["steps"] for i in infos)
-                proj = done / max(steps, 1) * (steps / len(infos)) * len(plan)
+                made = [r for r in plan.to_dict("records") if r["id"] in {i["id"] for i in infos}]
+                ratio = steps / max(planned_steps(pd.DataFrame(made), cfgt, o.get("length_min")), 1.0)
+                proj = done / max(steps, 1) * steps_planned * ratio  # the bytes per step so far, on every planned step
                 log(f"  {len(by_name)} of {len(tasks)} shards: {done:.2f} GB so far, about {proj:.1f} GB projected")
                 if have_gb + proj > o["max_gb"] and k + 1 >= 2:
                     pool.terminate()
