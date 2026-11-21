@@ -7,6 +7,11 @@
     twin-fusion [--files N]           the fusion's own tilt and heading error on the same walking, with perfect and
                                       with drawn sensors, and how much gyroscope bias each filter removes; writes
                                       twin_fusion_g<commit>/report.json
+    twin-session --seed S [--program protocol|random] [--subject SUBSET/ID] [--length-min M]
+                 [--set twin.key=value ...] [--out DIR]
+                                      one twin session end to end (Step 3 brief §4.8-4.11): the procedure and its
+                                      slips, the pods, the phone, the page twin; writes the session's files and
+                                      page/twin.bvh to DIR (default $MESQ_OUTPUT_DIR/twin_session_<program>_s<S>)
 
 They live in their own module so that adding one never moves a line of ``mesqsim/cli.py``, to which the Step 2
 explanations link by line number.
@@ -111,6 +116,34 @@ def cmd_twin_fusion(args) -> int:
     return 0
 
 
+def cmd_twin_session(args) -> int:
+    import time
+
+    from .config import load_config, parse_override
+    from .paths import REPO_ROOT
+    from .twin.config import load_twin_config
+    from .twin.program import join_check, make_program
+    from .twin.session import simulate_twin_session, write_twin_session
+
+    cfg1 = load_config(REPO_ROOT / "configs" / "default.yaml")
+    cfgt = load_twin_config(overrides=dict(parse_override(s) for s in (args.set or [])))
+    t0 = time.perf_counter()
+    joined, model, label = make_program(cfgt, args.program, args.seed, args.subject, args.length_min)
+    jc = join_check(joined)
+    print(f"{label}: {len(joined.pieces)} pieces, {joined.seq.poses.shape[0] / joined.seq.fps:.1f} s; join check "
+          f"{'passes' if jc['ok'] else 'FAILS'} ({jc['transition_max_rad_s']:.2f} rad/s at the joins, P99 of the "
+          f"pieces {jc['p99_rad_s']:.2f})")
+    s = simulate_twin_session(cfg1, cfgt, args.seed, joined, model, label)
+    out = args.out or (output_dir() / f"twin_session_{args.program}_s{args.seed}")
+    write_twin_session(out, s)
+    c = s.meta["counts"]
+    print(f"slips {s.plan.slips}; phone {s.plan.phone['settings']}, Zero request {s.plan.phone['zero_request_s']}")
+    print(f"{c['frames']} frames ({c['radio_lost']} lost), {c['phone_messages']} phone messages, {c['zeros']} Zeros, "
+          f"{len(s.labels_ticks)} tick labels; {time.perf_counter() - t0:.1f} s")
+    print(f"wrote {out}")
+    return 0 if jc["ok"] else 1
+
+
 def add_parsers(sub) -> None:
     """Add Step 3's subcommands to the ``python -m mesqsim`` parser."""
     rs = sub.add_parser("real-stats", help="Φ1-Φ12 of the recordings against Step 3 brief §5.3")
@@ -122,3 +155,11 @@ def add_parsers(sub) -> None:
     tf = sub.add_parser("twin-fusion", help="the fusion's own error on AMASS walking, and bias removal (S3-M4)")
     tf.add_argument("--files", type=int, default=12, help="training-split walking files (default 12)")
     tf.set_defaults(fn=cmd_twin_fusion)
+    ts = sub.add_parser("twin-session", help="one twin session end to end (S3-M5)")
+    ts.add_argument("--seed", type=int, required=True)
+    ts.add_argument("--program", choices=("protocol", "random"), default="protocol")
+    ts.add_argument("--subject", help="SUBSET/ID of a training-split subject (random program; default from the seed)")
+    ts.add_argument("--length-min", type=float, help="the random program's length (default from the seed)")
+    ts.add_argument("--set", action="append", help="override one twin parameter: twin.key=value (repeatable)")
+    ts.add_argument("--out", help="the session folder")
+    ts.set_defaults(fn=cmd_twin_session)

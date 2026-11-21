@@ -46,7 +46,7 @@ from .labels import report_labels
 from .page_frame import R_THREE_TO_WORLD, arkit_to_world_rot, arkit_to_world_turn, world_to_arkit_vec
 
 __all__ = ["UPTIME_OFFSET_S", "ArkitTrack", "frame_times", "tracking_states", "arkit_track", "AppRun",
-           "run_app", "message_frame_offset", "phone_labels", "phone_tables"]
+           "run_app", "message_frame_offset", "phone_labels", "phone_frame_psi", "phone_tables"]
 
 UPTIME_OFFSET_S = 21000.0
 """``ARFrame.timestamp`` runs on the device's uptime clock: true time + this (any value; the app uses differences).
@@ -157,6 +157,8 @@ class AppRun:
     zero_errors: list  # (t_s, reason)
     skipped: int  # messages the link refused (two in flight)
     levels: dict
+    frame_q: np.ndarray | None = None  # (N, 4) every frame's reported orientation after the tree turn; NaN before
+    frame_epoch: np.ndarray | None = None  # (N,) the Zero epoch of each frame (0 before the first Zero)
 
 
 def _settings(cfg: Config, overrides: dict | None):
@@ -166,9 +168,13 @@ def _settings(cfg: Config, overrides: dict | None):
 
 
 def run_app(cfg: Config, track: ArkitTrack, rng: np.random.Generator, zero_requests_s=(),
-            settings: dict | None = None) -> AppRun:  # fmt: skip
-    """Run the app (``twin.app`` settings, overridable) and the link on an ARKit track."""
+            settings: dict | None = None, turn_rad: float = 0.0) -> AppRun:  # fmt: skip
+    """Run the app (``twin.app`` settings, overridable) and the link on an ARKit track.
+
+    ``turn_rad`` turns every pose the app sends by Y(turn) about the reported frame's +Y, position and orientation
+    alike, and re-encodes it (the invariance checks of Step 3 brief §4.12 only; 0 leaves the app untouched)."""
     s = _settings(cfg, settings)
+    turn = app.q_yaw(turn_rad) if turn_rad else None
     pipe = app.PosePipeline(app.HipsFrame(lever=tuple(float(c) for c in s["lever_m"]),
                                           hip_height=float(s["hip_height_m"]), facing=s["facing"]),
                             tree=s["tree"], rate_hz=float(s["rate_hz"]))  # fmt: skip
@@ -179,6 +185,8 @@ def run_app(cfg: Config, track: ArkitTrack, rng: np.random.Generator, zero_reque
     rows, zeros, errors, in_flight = [], [], [], []
     skipped, nxt, epoch = 0, 0, 0
     levels = {k: 0 for k in range(len(app.LEVELS))}
+    frame_q = np.full((len(track.t_s), 4), np.nan)
+    frame_epoch = np.zeros(len(track.t_s), dtype=np.int64)
     t_prev = -np.inf
     for k, tk in enumerate(track.t_s):
         while nxt < len(requests) and requests[nxt] <= t_prev:
@@ -194,6 +202,14 @@ def run_app(cfg: Config, track: ArkitTrack, rng: np.random.Generator, zero_reque
                           "requested": out.zero_was_requested, "cam_q": out.zero.cam_rotation})  # fmt: skip
         if out.zero_error is not None:
             errors.append((float(tk), out.zero_error))
+        if out.reported is not None:
+            wire_p, wire_q = app.tree_wire(pipe.tree, *out.reported)
+            if turn is not None:
+                wire_p, wire_q = app.q_rotate(turn, wire_p), app.q_mul(turn, wire_q)
+                if out.message is not None:
+                    out.message = app.encode(wire_q, wire_p if out.message.has_position else None)
+            frame_q[k] = wire_q
+            frame_epoch[k] = epoch
         if out.message is None:
             t_prev = tk
             continue
@@ -206,7 +222,6 @@ def run_app(cfg: Config, track: ArkitTrack, rng: np.random.Generator, zero_reque
         in_flight.append(tk + lat)
         pipe.mark_sent(uptime)
         levels[out.message.level] += 1
-        wire_p, wire_q = app.tree_wire(pipe.tree, *out.reported)
         rows.append({"frame": k, "t_send_s": float(tk), "t_arrive_s": float(tk + lat), "epoch": epoch,
                      "line": out.message.text, "level": out.message.level, "len_bytes": out.message.bytes,
                      "wire_q": wire_q, "wire_p": wire_p, "tracking": track.tracking[k]})  # fmt: skip
@@ -214,7 +229,21 @@ def run_app(cfg: Config, track: ArkitTrack, rng: np.random.Generator, zero_reque
     msgs = pd.DataFrame(rows)
     if len(msgs):
         msgs["t_arrive_s"] = np.maximum.accumulate(msgs["t_arrive_s"].to_numpy())  # one TCP stream: in order
-    return AppRun(np.asarray(track.t_s), msgs, zeros, errors, skipped, levels)
+    return AppRun(np.asarray(track.t_s), msgs, zeros, errors, skipped, levels, frame_q, frame_epoch)
+
+
+def phone_frame_psi(run: AppRun, r_cam, tree: str) -> np.ndarray:
+    """ψ_ph (rad) at every ARKit frame from the first Zero on (NaN before): the twist rule on the frame's reported
+    orientation, as for the messages (:func:`phone_labels`)."""
+    psi = np.full(run.frame_epoch.size, np.nan)
+    by_epoch = {z["epoch"]: z for z in run.zeros}
+    ok = run.frame_epoch > 0
+    if not ok.any():
+        return psi
+    k = np.stack([message_frame_offset(by_epoch[e], tree) for e in run.frame_epoch[ok]])
+    q_m = arkit_to_world_turn(run.frame_q[ok])
+    psi[ok] = report_labels(q_m, quat_mul(np.asarray(r_cam, dtype=np.float64)[ok], k))[0]
+    return psi
 
 
 def message_frame_offset(zero: dict, tree: str) -> np.ndarray:

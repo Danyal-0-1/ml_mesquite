@@ -1784,6 +1784,137 @@ def _twin_phone(quick: bool) -> CheckResult:
                        f"{r['longest_bytes']} bytes; nudged {r['nudged']}; {g}", ok)
 
 
+_NEEDS_AMASS = "needs AMASS (KIT subject 3) and the SMPL+H model"
+
+
+@register(
+    "40.2",
+    "A twin BVH opens in the page's own BVHLoader as the page's own BVH does (Step 3 brief, S3-M5)",
+    "The short twin session's page/twin.bvh (a one-minute program of KIT subject 3 after the 35 s procedure) and "
+    "Danyal's Nov 14 BVH, both through build-static/BVHLoader.js of mesquite-mocap 87d7c3b in Node "
+    "(tools/page_golden/load_bvh.mjs): its constructor, its parse of the file as written, and its parse without "
+    "the page's ';' provenance lines.",
+    "The twin's BVH must be the page's file format, readable wherever the page's own files are; at 87d7c3b the "
+    "page's loader cannot be constructed on its three.js r157 and cannot read the page's own ';' lines, so the twin's "
+    "file must fail in exactly the same way and parse, once those lines are removed, with every keyframe finite.",
+    "the twin's constructor and as-written parse behave as the real file's; stripped, 27 bones and one keyframe per "
+    "BVH frame, all finite",
+    "pytest -m node tests/test_twin_session.py -k loader",
+)
+def _twin_bvh(quick: bool) -> CheckResult:
+    from .twin.session_checks import bvh_numbers
+
+    r = bvh_numbers()
+    if r is None:
+        return CheckResult("needs Node, the mesquite-mocap clone, " + _NEEDS_AMASS, None)
+    tw, real = r["twin"], r["real"]
+    same = real is None or all(tw[k] == real[k] for k in ("constructed", "construct_error", "parsed_as_is",
+                                                          "parse_error", "bones", "names", "comment_lines"))
+    ok = same and tw["bones"] == 27 and tw["keyframes"] == r["frames"] and tw["finite"]
+    return CheckResult(f"twin: constructed {tw['constructed']} ({tw['construct_error']}); parsed as written "
+                       f"{tw['parsed_as_is']} ({tw['parse_error']}, {tw['comment_lines']} ';' lines); stripped: "
+                       f"{tw['bones']} bones, {tw['keyframes']} keyframes of {r['frames']} frames, finite "
+                       f"{tw['finite']}; " + ("the Nov 14 BVH behaves identically" if real is not None and same
+                                              else "no Nov 14 BVH to compare" if real is None
+                                              else "the Nov 14 BVH behaves DIFFERENTLY"), ok)  # fmt: skip
+
+
+@register(
+    "43.2",
+    "δ and ε recomputed from ψ match the twin's tables (Step 3 brief §10, item 4)",
+    "The short twin session: ε_i = wrap(ψ_i - ψ_ph) from labels_ticks' own ψ columns, and δ_pc = wrap(ψ_c - ψ_p) "
+    "from labels_steps' per-pod ψ, against the stored eps_rad and labels_joints' delta_rad.",
+    "The scorer and Danyal's models read δ and ε; they must be exactly the twist-rule ψ the tables also carry.",
+    "both within 1e-12 rad",
+    "pytest -m amass tests/test_twin_session.py -k tables",
+)
+def _twin_tables(quick: bool) -> CheckResult:
+    from .twin.session_checks import table_numbers
+
+    r = table_numbers()
+    if r is None:
+        return CheckResult(_NEEDS_AMASS, None)
+    ok = r["eps_max_rad"] < 1e-12 and r["delta_max_rad"] < 1e-12
+    return CheckResult(f"{r['ticks']} tick labels, ε within {r['eps_max_rad']:.1e} rad; {r['steps']} steps × 14 "
+                       f"joints, δ within {r['delta_max_rad']:.1e} rad", ok)
+
+
+@register(
+    "46.1",
+    "What cannot be known, as tests (Step 3 brief §4.12)",
+    "The short twin session three more times: (a) every pod's report and the phone's messages turned by one "
+    "Y(0.7 rad); (b) the left shin's report alone by Y(-0.4 rad); (c) the room's origin moved by (3, -2, 0) m. "
+    "Then B1 and GEO-ID on (a) against the original.",
+    "No label and no estimator may depend on the world's or a pod's arbitrary north: ψ_i -> ψ_i - γ for a pod turned "
+    "alone must move only ε_i and the δ of its own joints, with δ_pc = ψ_c - ψ_p giving -γ where it is the child and "
+    "+γ where it is the parent.",
+    "(a) every ψ and ψ_ph shifted by -β, δ and ε unchanged, within 1e-9 rad; (b) ψ_i and ε_i shifted by -γ, l_knee's δ "
+    "by -γ and l_ankle's by +γ, everything else unchanged; (c) nothing changes; B1 and GEO-ID within 0.5°",
+    "pytest -m amass tests/test_twin_session.py -k 'invariances or estimators'",
+)
+def _twin_invariances(quick: bool) -> CheckResult:
+    from .twin.session_checks import estimator_invariance, invariance_numbers
+
+    r = invariance_numbers()
+    if r is None:
+        return CheckResult(_NEEDS_AMASS, None)
+    c, o, m = r["common"], r["one"], r["room"]
+    est = estimator_invariance()
+    ok = (max(c.values()) < 1e-9 and max(o["psi_pod_err"], o["eps_pod_err"], o["delta_err"]) < 1e-9
+          and o["psi_others"] == 0.0 and o["eps_others"] == 0.0 and o["joints_moved"] == ["l_ankle", "l_knee"]
+          and max(m["psi"], m["psi_ph"], m["delta"]) < 1e-9 and m["phone_lines_equal"]
+          and max(est.values()) < 0.5)  # fmt: skip
+    return CheckResult(f"(a) ψ shift {c['psi_shift_err']:.1e}, ψ_ph shift {c['psi_ph_shift_err']:.1e}, ε "
+                       f"{c['eps']:.1e}, δ {c['delta']:.1e} rad; (b) the shin {o['psi_pod_err']:.1e}, ε "
+                       f"{o['eps_pod_err']:.1e}, δ {o['delta_err']:.1e}, joints moved {o['joints_moved']}, others "
+                       f"{max(o['psi_others'], o['eps_others']):.1e}; (c) ψ {m['psi']:.1e}, δ {m['delta']:.1e}, phone "
+                       f"lines equal {m['phone_lines_equal']}; estimators under (a): B1 {est['B1']:.4f}°, GEO-ID "
+                       f"{est['GEO-ID']:.4f}°", ok)
+
+
+@register(
+    "47.1",
+    "Long sessions join smoothly (Step 3 brief §4.9)",
+    "The protocol program (KIT subject 3: 29 pieces, his clips and synthetic pieces on his poses) and a one-minute "
+    "random program of the same subject: the largest angular speed of the root or any body joint's local rotation "
+    "on a 0.5 s blend, against the P99 of the pieces' own speeds.",
+    "A join that whips a joint round would put accelerations and rates into the twin that no recording has.",
+    "no transition speed above the P99",
+    "pytest -m amass tests/test_twin_session.py -k program",
+)
+def _twin_joins(quick: bool) -> CheckResult:
+    from .twin.session_checks import join_numbers
+
+    r = join_numbers()
+    if r is None:
+        return CheckResult(_NEEDS_AMASS, None)
+    ok = all(x["ok"] for x in r.values())
+    return CheckResult("; ".join(f"{n}: {x['pieces']} pieces, {x['seconds']:.1f} s, {x['joins']} joins, at most "
+                                 f"{x['transition_max_rad_s']:.2f} rad/s on a blend against a P99 of "
+                                 f"{x['p99_rad_s']:.2f}" for n, x in r.items()), ok)  # fmt: skip
+
+
+@register(
+    "48.1",
+    "The same seed gives identical session files (Step 3 brief §10, item 9)",
+    "The short twin session simulated twice with seed 3 and written by write_twin_session: the SHA-256 of every "
+    "file (frames, the four label tables, phone.parquet, session.json, meta.json, page/twin.bvh). The dataset "
+    "manifest's part of this check comes with the dataset (S3-M7).",
+    "Every result must be reproducible from its seed and config; a hidden clock, set order or unseeded draw would "
+    "make the twin's numbers unrepeatable.",
+    "9 files, every hash equal",
+    "pytest -m amass tests/test_twin_session.py -k seed",
+)
+def _twin_determinism(quick: bool) -> CheckResult:
+    from .twin.session_checks import determinism_numbers
+
+    r = determinism_numbers()
+    if r is None:
+        return CheckResult(_NEEDS_AMASS, None)
+    return CheckResult(f"{r['files']} files, identical {r['identical']}" + (f"; differ: {r['differ']}" if r["differ"]
+                                                                           else ""), r["identical"] and r["files"] == 9)
+
+
 @register(
     "49.1",
     "The analysis of 2026-11-14 is reproduced (Step 3 brief §5.3)",

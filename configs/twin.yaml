@@ -217,6 +217,105 @@ twin:
       value: [0.0, 0.0, 0.1]
       label: measured
       source: "lever_cam_m=0,0,0.1 (the manual depth, camera frame) in the log's header"
+  program:
+    # Step 3 brief §4.9: a session is one subject's clips joined end to end (mesqsim/twin/program.py).
+    rate_hz:
+      value: 60.0
+      label: assumption
+      source: "every clip is resampled to this rate before joining; positions are then smoothed at 8 Hz (twin.physics), well below its Nyquist"
+    blend_s:
+      value: 0.5
+      label: assumption
+      source: "Step 3 brief §4.9: 'about 0.5 s' of blend between two pieces, labelled transition"
+    heading_window_s:
+      value: 1.0
+      label: assumption
+      source: "the facing matched at a join is averaged over this long at each end: about one gait cycle, since the pelvis yaws by some 15° within a stride (WORKLOG S3-M5)"
+    length_min:
+      value: [3.0, 30.0]
+      label: assumption
+      source: "Step 3 brief §4.9: a session lasts a length drawn uniformly from this range, minutes"
+    still_s:
+      value: [5.0, 30.0]
+      label: assumption
+      source: "a still stand inserted after a clip lasts this long (uniform)"
+    p_still:
+      value: 0.15
+      label: assumption
+      source: "the chance a still stand follows a clip"
+    p_tpose:
+      value: 0.05
+      label: assumption
+      source: "the chance a T-pose follows a clip"
+  procedure:
+    # Step 3 brief §4.8: box, strapping, the slips, the phone's Zero, the page's Set T-pose, recording on, the motion
+    # program, recording off (mesqsim/twin/session.py). The times are counted from the start of the program, whose
+    # first piece is a T-pose.
+    box_s:
+      value: 5.0
+      label: assumption
+      source: "the pods lie in the box this long after Start (configs/default.yaml session.box_s)"
+    strapping_s:
+      value: 30.0
+      label: assumption
+      source: "then the strapping lasts this long (configs/default.yaml session.strapping_s); each pod's own carry takes session.strap_move_s within it"
+    app_start_s:
+      value: -20.0
+      label: assumption
+      source: "the phone app's Start (its AR session) at this time from the program's start, during the strapping; its automatic Zero follows at the first normal frame"
+    zero_at_s:
+      value: 1.0
+      label: assumption
+      source: "the phone's Zero in T-pose is requested this far into the program's first T-pose (Danyal pressed it on Nov 14, WORKLOG S3-M0)"
+    set_tpose_at_s:
+      value: 2.5
+      label: assumption
+      source: "the page's Set T-pose (calibrate()) this far into the first T-pose, after the phone's Zero"
+    record_at_s:
+      value: 4.0
+      label: assumption
+      source: "the page's recording starts here and stops at the program's end"
+    box_position_m:
+      value: [0.0, -0.6, 0.75]
+      label: assumption
+      source: "the box on a table in front of the wearer, who stands at the origin facing -Y in the T-pose; the pods lie in a row 6 cm apart along x"
+    posture_deg:
+      value: 5.0
+      label: assumption
+      source: "the wearer's T-pose is the SMPL rest pose with an error of about this much per body joint (RMS angle; configs/default.yaml session.tpose_posture_deg)"
+    p_limb_restart:
+      value: 0.1
+      label: assumption
+      source: "slip: after the box, a USB cable restarts one pod or both upper pods of one limb (half each), at a random moment between its strapping and the T-pose; it reboots with a new north wherever it faces (Nov 14's left leg; to be fitted, weakly, in S3-M6)"
+    p_zero_at_start:
+      value: 0.1
+      label: assumption
+      source: "slip: the phone's Zero is the automatic one at Start, not taken in the T-pose"
+    p_camera_mismatch:
+      value: 0.05
+      label: assumption
+      source: "slip: the app's 'Rear camera looks' setting is a quarter turn off the way the phone is worn (±90°, equally)"
+    p_tree_mismatch:
+      value: 0.05
+      label: assumption
+      source: "slip: the app's 'Suit tree' setting does not match the page's tree (the matched setting instead of the velvet family: the position turned by 180°)"
+    arm_raise:
+      value: false
+      label: assumption
+      source: "Step 3 brief §4.8 item 5 and Step 2 §5.8: an optional forward raise of both arms right after the first T-pose"
+  page:
+    tree:
+      value: velvet
+      label: measured
+      source: "Danyal's answer (WORKLOG S3-M0): velvet on Nov 13 and on Nov 14"
+    mode:
+      value: as_is
+      label: assumption
+      source: "Step 3 brief §4.10: as_is is the page at 87d7c3b; ideal_root_box the named counterfactual"
+    frame_interval_ms:
+      value: 33.0
+      label: measured
+      source: "Step 3 brief §4.10, Φ10: the recorder's frame interval on Nov 14, 33.0 ms mean (the BVH header)"
 
 # Danyal's settings for the models Danyal writes (Step 3 brief §7): empty on purpose. The guide's recommendations
 # go here as comments, labelled assumption, when the guide is written.

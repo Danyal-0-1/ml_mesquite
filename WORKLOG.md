@@ -1501,3 +1501,84 @@ SparkFun's copy refuses). A copy of the PDF would turn the accelerometer's noise
 **Commands.** `python -m pytest -q` (data present): **385 passed** in 139 s. `python -m mesqsim twin-fusion --files
 12`. `python tools/app_golden/make_fixtures.py` (Swift 6.3.3); `python tools/page_golden/make_fixtures.py` (Node
 24.11.1). The mesquite-mocap clone stays clean (`git status` empty after both builds).
+
+## 2026-11-21 · S3-M5 (procedure, slips, programs, long sessions, one twin session) · branch `s3-m5` (stacked on `s3-m4`; nothing pushed)
+
+**Previous milestone's commits.** `c78a064`, `ab1cbb4` on `s3-m4` (local).
+
+**Plan stated.** Long sessions joined from one subject's clips (§4.9) and the protocol program (§4.8); the
+procedure with its slips (§4.8); one command for one twin session end to end, with the files and labels of §4.11;
+checks 40.2 (the BVH in the page's loader), 43.2 (δ and ε from the tables), 46.1 (§4.12), 47.1 (joins), 48.1
+(determinism).
+
+**Files added.** `mesqsim/twin/{program,session,session_checks}.py`, `tools/page_golden/load_bvh.mjs`,
+`tests/test_twin_session.py`. **Changed.** `configs/twin.yaml` (`program`, `procedure`, `page`),
+`mesqsim/twin/phone.py` (per-frame ψ_ph; a turn hook for §4.12), `mesqsim/cli_step3.py` (`twin-session`),
+`mesqsim/validation.py` (40.2, 43.2, 46.1, 47.1, 48.1).
+
+**What was built.**
+- `program.py`: clips resampled to 60 Hz (slerp per joint), each next piece turned about the vertical through its
+  first pelvis point and shifted so its root continues the last one, a 0.5 s smoothstep blend labelled
+  `transition`; one subject per session, from its own split. Synthetic pieces on the subject's own poses: T-pose,
+  still, hip twists, leg swings forward and to the side, arm raises forward and to the side, a turn on the spot.
+  `random_program` draws one subject's clips up to a drawn length with still stands and T-poses between.
+- The protocol program (§4.8) on **KIT subject 3** (training split, the one subject whose clips cover most of it):
+  his `walk_6m_straight_line` cut at 4 m, his `turn_left` U-turns, his squats; synthetic T-poses, twists, swings,
+  raises and the two 360° turns on the spot. 29 pieces, 189.9 s. Every walk leg lies on one line (|x| < 0.2 m).
+- `session.py`: the procedure (box, strapping with Step 1's carry path and the position by smoothstep, the body
+  holding its first pose until the program starts, the app's Start at -20 s, its automatic Zero, the requested Zero
+  at +1 s in the T-pose, Set T-pose at +2.5 s, recording from +4 s), the posture error on the first T-pose, the four
+  slips, per pod Step 1's timing per boot epoch, the sensors and the fusion on the chip's own samples, the wire,
+  Step 1's radio, the phone and its app, the page twin on every message in arrival order, and the files: Step 1's
+  `frames.parquet`, `session.json`, `labels_ticks` (ψ, tilt, ψ_ph, ε, the truth), `labels_joints` (δ and Step 1's
+  `delta_offset_rad`, so Step 2's tools read it), `labels_steps` (per 32 Hz step the true segment orientations, the
+  motion type, `transition`, the slips, every ψ), `phone.parquet`, `labels_phone.parquet`, `meta.json`,
+  `page/twin.bvh`. `python -m mesqsim twin-session --seed 1`: the protocol session (35 s of procedure, 225 s in
+  all) in 8.9 s, 105,140 frames (2,209 lost), 6,264 phone messages, 23 MB on disk (`labels_ticks` 11.6 MB).
+- Step 2's own tools read these files unchanged: on the protocol session B1's median relative-heading error is
+  5.2° and GEO-ID's 3.5° (P90 17.2° and 13.4°), a first look ahead to S3-M9.
+
+**Results.**
+- 47.1 joins: protocol 2.47 rad/s at most on a blend against a P99 of 2.88 (28 joins); a one-minute random program
+  2.71 against 2.88 (8 joins).
+- 46.1 (§4.12): turning every pod and the phone by Y(0.7 rad) shifts every ψ and ψ_ph by -β within 8.9e-16 and
+  leaves ε and δ within 1.8e-15 rad; turning the left shin alone by Y(-0.4 rad) moves only its ψ and ε by -γ and the
+  δ of l_knee (it is the child: -γ) and l_ankle (the parent: +γ), within 1.3e-15; moving the room changes nothing
+  (the phone's lines are identical: ARKit's origin is where it started). B1 and GEO-ID move by 0.0035° and 0.0067°
+  under the common turn.
+- 43.2: ε and δ recomputed from the stored ψ equal the stored ones exactly.
+- 48.1: seed 3 twice, 9 files, identical bytes.
+- 40.2: see below.
+- All four modes run end to end (VQF, Mahony, Step 1's analytic, the old JSON wire with its 32 ms grid, and an
+  oversample of 4).
+
+**Findings in the page, for Danyal (mesquite-mocap `87d7c3b`).**
+- `build-static/BVHLoader.js`, which `player.html` loads (`js/threejssceneplayer.js:6, :332`), cannot be
+  constructed on the page's own three.js r157: it is a pre-class loader calling `Loader.call(this, manager)`, and
+  r157's `Loader` is a class ("Class constructor Loader cannot be invoked without 'new'").
+- The page's own BVH files cannot be read by that loader even so: `js/bvh_converter.js` writes three `;` provenance
+  lines after `Frame Time:`, BVH has no comment syntax, and the loader reads them as frames and runs out of numbers.
+  Danyal's Nov 14 file fails exactly so; the older page's Nov 13 files have no such lines and parse.
+- Check 40.2 therefore asks for what fidelity means here: the twin's BVH fails in the page's loader exactly as the
+  real Nov 14 file does (constructor, then the same parse error at the same lines), and with the `;` lines removed
+  both parse completely with the page's own parser (27 bones, one keyframe per frame, every value finite).
+
+**Bugs the work caught.**
+- The first join matched the pelvis's instantaneous facing; the pelvis yaws about ±15° within a stride, so the
+  protocol's back-and-forth walk fanned out by 15-17° a leg (6.2 m wide). The facing is now averaged over 1 s
+  (`heading_window_s`), and a walk can name its travel direction (the protocol's legs alternate on one line).
+- KIT subject 3's `turn_left` clips are U-turns that wander 1.2 m, not turns on the spot; the protocol's two 360°
+  turns are synthetic.
+- A test assumed seed 3 had no slips; it draws "Zero at Start", which is right.
+- A test bounded the box-phase tilt by 1°; the accelerometer's assumed misalignment allows up to 1.7°.
+
+**Decisions.**
+- A session's body holds the program's first pose (a T-pose) from Start until the program begins; the pods are
+  carried to it during the strapping.
+- The phone is on the belt from Start; ARKit starts with the app, 20 s before the T-pose (`assumption`).
+- Slip probabilities (`twin.procedure.p_*`) are `assumption` until S3-M6 fits what the recordings allow (weakly).
+- 48.1's "identical dataset manifest" comes with the dataset (S3-M7).
+
+**Commands.** `python -m mesqsim twin-session --seed 1` (twice, `shasum` of every file: identical); `node
+tools/page_golden/load_bvh.mjs` on the twin BVH and on the Nov 13 and Nov 14 BVHs; `pytest tests/test_twin_session.py`
+(13 passed, 46 s); `python -m pytest -q` (data present): **403 passed** in 194 s.
