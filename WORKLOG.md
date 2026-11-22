@@ -2326,3 +2326,6 @@ from the brief's one-week plan exists, so the course covers both cases (its §0)
 **Check.** `ruff check .` is clean. `pytest tests/test_step3_guide_examples.py` gives 14 passed with the data, and 5
 passed and 9 skipped without it. `tests/test_repo_guide.py` gives 13 passed. Adding comments to `learning:` leaves
 the twin config's hash at `5de4440cd537…`.
+- `bash scripts/check_all.sh` at `ad60e66`, in a clean temporary worktree since removed, took 779 s. ruff is clean;
+  pytest gives 473 passed and 10 skipped (Danyal's model tests); validation passes 70 of 70 checks. This entry's
+  commit changes only `WORKLOG.md` and the header of `docs/VALIDATION.md`.
