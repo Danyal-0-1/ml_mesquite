@@ -196,3 +196,10 @@ data file or any file over 5 MB is committed.
 | see the numbers | [RESULTS_STEP1.md](docs/RESULTS_STEP1.md), [RESULTS_STEP2.md](docs/RESULTS_STEP2.md), [RESULTS_STEP3.md](docs/RESULTS_STEP3.md), [VALIDATION.md](docs/VALIDATION.md) |
 | know where a parameter's value came from | `python -m mesqsim params`, and the source and label next to each value in `configs/` |
 | check that everything still works | `bash scripts/check_all.sh` (about 13 minutes on an M2 Pro with the data present) |
+
+The requested tutoring notes are in `docs/step3_simulation_explanation/`:
+[MOTION_SIMULATION_TUTORIAL.md](docs/step3_simulation_explanation/MOTION_SIMULATION_TUTORIAL.md) brings together
+Modules 0 and 1 (the project map and rotation mathematics), expanded derivations, code and test references,
+worked examples, runnable snippets, and self-check answers. Its nine-module reading plan describes the continuation.
+[LESSON_2_THE_LOADER.md](docs/step3_simulation_explanation/LESSON_2_THE_LOADER.md) is the guided build of the
+course's Lesson 2: the loader's contract, mathematics, pseudocode, tests and drills, without the finished code.

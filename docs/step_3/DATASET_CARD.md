@@ -153,7 +153,9 @@ are never labels.
   `val_KIT_12_v0`, an old-suit session, pods 5, 8, 11 and 14 are zero throughout.
 - **A pod lost for a while** keeps its last values, and its age grows.
 - **The phone before its first message** has zeros and state 0.
-- **Invalid targets are stored as 0.** Always multiply by the valid mask; never trust a 0.
+- **Invalid targets are stored as 0, except inside a transition,** where they keep the blend's value: 2,258,768 of
+  the 8,369,798 invalid ε cells of the validation split (δ: 2,046,384 of 8,606,024). Always multiply by the valid
+  mask; never trust a target where its mask is False, zero or not.
 - **ε can be valid one step before the phone's first message arrives.** The Zero has happened, but its message is
   still in flight. In `val_KIT_12_v0` that is step 458 (16.03 s) against 459.
 

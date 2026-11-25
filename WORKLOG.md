@@ -2329,3 +2329,150 @@ the twin config's hash at `5de4440cd537…`.
 - `bash scripts/check_all.sh` at `ad60e66`, in a clean temporary worktree since removed, took 779 s. ruff is clean;
   pytest gives 473 passed and 10 skipped (Danyal's model tests); validation passes 70 of 70 checks. This entry's
   commit changes only `WORKLOG.md` and the header of `docs/VALIDATION.md`.
+
+## 2026-11-22 · Save the tutoring explanation and expand the rotation mathematics
+
+**Request.** Put the complete conversational Module 0 and Module 1 explanation in one Markdown file under
+`docs/step3_simulation_explanation/`, preserving references and teaching the mathematics in detail.
+
+**Written.** `docs/step3_simulation_explanation/MOTION_SIMULATION_TUTORIAL.md` contains the project map,
+the nine-module reading plan, definitions and stepwise rotation derivations, all 38 convention functions and their
+existing test coverage, numerical examples, repository-root snippets, and five self-checks with answers per module.
+Expanded the matrix-exponential/Rodrigues, quaternion-sandwich, Cardan, circular-mean, Gaussian-moment, and von Mises
+derivations. References use relative repository links with visible source lines. Modules 2–8 remain the planned
+continuation. Added the tutorial to `REPOSITORY_GUIDE.md`.
+
+**Accuracy clarification.** The physical helper exposes a spline-derived angular rate, but the twin session's fusion
+input is built with `ideal_gyro_rad_s(imu.q, dt)` before sensor errors. The tutorial cites both operations and explains
+the distinction. No simulator, model, dataset, or licensed data was changed.
+
+**Checks.** `.venv/bin/python -m pytest -q tests/test_conventions.py tests/test_conventions_step2.py
+tests/test_repo_guide.py tests/test_explain_links.py`: 62 passed. All three runnable example snippets were executed
+and match the documented values; each is under 15 lines. Checked relative link targets and source-line anchors,
+documentation of every convention function, balanced code/math delimiters, absence of home-folder paths, and
+`git diff --check`.
+
+## 2026-11-22 · Lesson 2 as a guided build: the loader
+
+**Request.** Teach Lesson 2 of `docs/step_3/LEARN_THE_MODEL.md` (the loader) in the tutorial's format: for each
+function, what it is for, its pseudocode, its mathematics, a line-by-line explanation, the conventions and style, and
+drills to master it, so that Danyal writes the code.
+
+**Written.** `docs/step3_simulation_explanation/LESSON_2_THE_LOADER.md`: the contract and eight invariants; the
+mathematics of tiling windows, the warm-up against the 253-step receptive field, the mask, the 37 inputs (broadcasting,
+type promotion, the one-hot as an embedding), flattening, shuffling and the effective batch size, and the HDF5
+throughput budget; then `pod_inputs`, `loss_mask`, `WindowDataset` (`__init__`, the per-process file cache with
+`__getstate__`, `__getitem__`) and `collate` function by function, the `DataLoader` argument by argument, a test to
+copy, conventions, usual mistakes with their real error messages, drills, a self-check and the next step.
+
+**Choice (rule 14 and Step 3 brief §7.5).** No finished loader is written: the file gives the module skeleton
+(imports, types, stubs), pseudocode, and the library's interface on toy arrays, never the function bodies. The
+recommended signature adds a keyword-only `part` (train only) to the course's `WindowDataset(path, split,
+window_steps=576, loss_steps=320, seed=0)`; the skeleton accepts only the reference sizes, because `store.windows`
+implements the reference rule alone.
+
+**Checks.** Every number was recomputed from `twin_v1` or measured on this Mac: the G2 window counts and the split and
+part totals from `index.parquet` and `store.windows`; window 80 of `val_KIT_12_v0` (golden values) and the mask counts
+(1,298; 3,168; 37,059,405 over the validation split) through `read_targets`; no non-finite input value in the
+validation split; window read times (median 7.04 ms; whole session 157.7 ms); 25 % of windows straddle a chunk
+boundary. Each quoted error message was produced by running it, and the torch 2.14.1 source was read for the worker
+seeds, the sampler, `in_order` and pinned memory on MPS. The skeleton passes ruff except the expected F401 of its
+stubs, and in a scratch copy of the package it turns the three kit loader tests from skipped to failed
+(`NotImplementedError`). The example test passed against a throwaway implementation, deleted afterwards; no loader
+exists in `mesqsim/learn/`. `tests/test_repo_guide.py` passes.
+
+## 2026-11-23 · `pod_inputs` given in full, at Danyal's request
+
+**Request.** After the guided walkthrough of `pod_inputs`, Danyal asked for that function's complete code with the
+explanations in it.
+
+**Choice.** This departs from CLAUDE.md rule 14 and Step 3 brief §7.5 for this one function only, at the request of
+the person the rule protects. The code was given in the conversation, in an annotated version and a lean version;
+nothing was written to `mesqsim/learn/`. The other loader functions still follow the guided format unless Danyal asks
+otherwise.
+
+**Checks.** In a scratch copy of the package, since deleted: both versions pass the lesson's §5.1 test and ruff with
+the repository's configuration, and give identical outputs; window 80 of `val_KIT_12_v0` reproduces the golden values
+of §4.5; a swapped call raises the documented `ValueError`; float64 inputs return float32.
+
+## 2026-11-23 · `loss_mask` given in full, at Danyal's request
+
+**Request.** Danyal asked for `loss_mask` as for `pod_inputs`: each formula and each line explained, and the final
+function to retype.
+
+**Choice.** The same exception to CLAUDE.md rule 14 and Step 3 brief §7.5, for this function only. The code was given
+in the conversation; nothing was written to `mesqsim/learn/`. The code adds two things to the lesson's pseudocode.
+First, `valid` must be a 2-D bool array: `y_eps` and `valid_eps` have the same shape, so only the dtype tells them
+apart. Second, the result is made C-contiguous, because `valid.T & in_loss` comes out F-ordered. The docstring says
+(n, T), so that the function also serves TCN-J's `valid_delta`. §4.2 of `LESSON_2_THE_LOADER.md` was updated to match.
+
+**Correction.** `docs/step_3/DATASET_CARD.md` said that invalid targets are stored as 0. Inside a transition, they keep
+the blend's value. In the validation split, 2,258,768 of the 8,369,798 invalid ε cells and 2,046,384 of the 8,606,024
+invalid δ cells are nonzero, all of them inside transitions (counted with h5py over the 74 sessions). The card and the
+lesson's §3.3 now say so.
+
+**Checks.** These were run in a scratch copy, since deleted:
+- ruff passes.
+- The toy example and the four `ValueError` messages were reproduced.
+- Windows 0 and 80 of `val_KIT_12_v0` give 1,298 and 3,168 True cells (118 and 288 per present pod).
+- The validation split's 9,400 windows give 37,059,405 True cells of 81,216,000.
+- The unparenthesised `valid.T & np.arange(t) >= t - loss_steps` gives an all-False mask, and the kit's warm-up test
+  does not catch it.
+- On this Mac, a call takes 8.0 µs, and 4.8 µs without the contiguous copy.
+
+## 2026-11-23 · `WindowDataset.__init__` given in full, at Danyal's request
+
+**Request.** "The same explanations on the next function": `WindowDataset.__init__`, each formula and each line
+explained, and the final code to retype.
+
+**Choice.** The same exception to CLAUDE.md rule 14 and Step 3 brief §7.5, for this method only. The code was given
+in the conversation; nothing was written to `mesqsim/learn/`. The code makes two choices beyond the lesson's
+pseudocode:
+- The root is resolved to an absolute path, so a later change of directory cannot break the shard paths.
+- Only the five index columns that the loader uses are read.
+
+§4.3 and §12 of `LESSON_2_THE_LOADER.md` were updated to match, with the nested-part rule: a subject is in part 1/q
+when its stored part is at least q.
+
+**Correction.** In the conversation of the same day, Danyal was advised to run `ruff format` on the loader. The
+repository does not follow `ruff format`: 75 of its 142 Python files would be reformatted, and `scripts/check_all.sh`
+runs only `ruff check`. The advice was withdrawn in the next answer.
+
+**Checks.** These were run in a scratch copy, since deleted:
+- ruff passes.
+- Validation: 9,400 windows from 74 sessions in 10 shards, the first ones `(val_BMLmovi_Subject_11_F_MoSh_v0, 0, 576)`
+  and `(…, 320, 896)`, as Python ints. Window 80 of `val_KIT_12_v0` is at position 7,162.
+- Training: 54,153 windows, 12,141 at part 4 and 2,394 at part 16. Test: 7,734 windows.
+- With `==` in place of `>=`, part 4 gives 66 sessions and 6,174 windows.
+- The four `ValueError` messages were reproduced.
+- Two constructions give equal windows.
+- With a scratch `__len__`, the kit's test `test_loader_windows_stay_in_one_session_of_the_split_and_are_causal`
+  passes. The two other loader tests need `__getitem__`.
+- The training dataset takes 8.0 MB (`tracemalloc`) and pickles to 1.12 MB.
+
+## 2026-11-24 · The rest of the loader given in full, at Danyal's request
+
+**Request.** "The rest that is left from the loader, with the same explanation." That covers:
+- the file cache (`_group`, `__getstate__`, `close`);
+- `__len__`, `__getitem__` and `__repr__`;
+- `collate`;
+- the `DataLoader`.
+
+**Choice.** The same exception to CLAUDE.md rule 14 and Step 3 brief §7.5 applies, now to the whole loader, at the
+request of the person the rule protects. The code was given in the conversation as one module for Danyal to retype
+into `mesqsim/learn/loader.py`; nothing was written to `mesqsim/learn/`. The network, the losses and the training
+loop (Lessons 4 to 7) remain Danyal's to write.
+
+**Checks.** These were run in a scratch copy of the package, since deleted:
+- ruff passes, and the kit's three loader tests pass with `MESQ_TEST_DATASET` set.
+- Window 80 of `val_KIT_12_v0` reproduces the golden table of §4.5: θ is 3.0107 rad (172.501°), and the mask holds
+  3,168 cells.
+- A dataset that has opened files still pickles, and the copy's cache is empty. Without `__getstate__`, pickling
+  raises `TypeError: h5py objects cannot be pickled`.
+- `collate` returns `x` (480, 37, 576) float32, `theta` (480, 576) float32 and `mask` (480, 576) bool, 42,301,440
+  bytes per batch. Row 15·b + p is pod p of item b, and `flatten` is a view.
+- The lesson's script with 4 workers on the 1/4 part: the first batch after 5.1 s, then 0.092 s per batch.
+- For one seed, the first three batches are identical with 0, 2 and 4 workers. Without a generator they differ.
+
+On this Mac, `ds[i]` took 9.18 ms (median of 200 random validation windows; 90th percentile 17.40 ms), and
+`collate` took 1.87 ms for 32 items (4.12 ms with `torch.stack`).
