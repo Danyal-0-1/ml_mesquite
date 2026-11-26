@@ -75,7 +75,7 @@ def loss_mask(valid: np.ndarray, loss_steps: int)-> np.ndarray:
 
     
 class WindowDataset(Dataset):
-    """TCN-P"""
+    """TCN-P's training windows of one split of a ``twin_v1`` -style dataset"""
 
     def __init__(self, path:str | Path, split :str, window_steps:int = WINDOW_STEPS, loss_steps: int = LOSS_STEPS, seed: int = 0
                  ,*, part: int |None = None) -> None:
@@ -104,7 +104,6 @@ class WindowDataset(Dataset):
         self.part = part
         self.loss_steps = loss_steps
         self.seed = seed
-
         # the shelf map
         # a dict comperhension {key: value for item in iterable}
         self.shard_of: dict[str, Path] = {r.id: root / r.shard for r in rows.iteruples(index=False)}
@@ -114,16 +113,52 @@ class WindowDataset(Dataset):
         if not self.windows:
             raise ValueError(f"WindowDataset: no window in split {split!r} (part {part!r}) of {root}")
         self._files: dict[Path, h5py.File] = {}
-        
 
+    def _group(self, session_id:str) -> h5py.group:
+        path = self.shard_of[session_id]
+        f = self._files.get(path)   
+        if f is None:
+            f = self._files[path] = h5py.File(path, "r")
+        return f["sessions"][session_id]
+
+    """ We need a shalow copy here, when we open dhf5 files laizly inside __geritem__ insted of __init__ when spawing parallel workers ( dataloader with workers > 0)
+    python isolates each worker in its owen process to each worker. an open h5py.file or dataset refrence is not raw data in memnory-it is a live os/c level file pointer that cannot be 
+    seralized(flatten and pickled) by storing only the string file path in __init__ each worker can read and slice out the numpy arrays"""
+    def _getstate_(self) -> dict:
+        state = self.__dict__.copy()
+        state["_files"] = {}
+        return state
+
+    def close(self) ->None:
+        for f in self._files.values():
+            f.close()
+        self._files.clear()
     
+    # counting just the windows
     def __len__(self) ->int:
-        raise NotImplemented
+        return len(self.windows)
 
+    # turn an adress to numetical array
     def __getitem__(self, i: int) -> Item:
-        raise NotImplemented
+        """Window i: ``x`` (15,37, W) float 32, ``theta`` (15,w) float 32 rad, ``mask`` (15, w)bool"""
+        session_id, start, end = self.windows[i]
+        g = self._group(session_id)
+        x = pod_inputs(g["x_pod"][start:end], g ["x_phone"][start:end], g["x_pod_phone"][start:end])
+        y = read_targets(g, start, end)
+        theta = np.ascotiguousarry(y["y_eps"].T) # (15,w) float 32 rad.
+        mask = loss_mask(y["valid_eps"], self.loss_steps) # (15,w)bool.
+        return {"x": x, "theta":theta, "mask":mask}
 
+    def __repr__(self) -> str:
+        return (f"{type(self).__name__}(split={self.split!r}, part={self.part!r}, sessions={len(self.shard_of)},"
+                "f"windows={len(slef.windows)})")
 
 def collate(batch: list[Item]) -> dict [str.torch.Tensor]:
-    """The docstring of §4.6"""
-    raise NotImplemented
+    """B items to one batch of N = 15.B sequences, sequence n = 15.b + p: ``x`` (N,37,W) float 32,
+    ``theta`` (N,W) float32 rad, mask (n,w) bool."""
+    out: dict[str, torch.Tensor] = {}
+    for key in ("x", "theta","masl"):
+        stacked = np.stack([item[key] for item in batch]) # (b,15,....): the batch's one copy
+        out[key] = torch.from_numpy(stacked).flatten(0,1) # (15.B, ...): shares stacked's memory
+    return out
+
